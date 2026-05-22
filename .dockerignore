@@ -1,0 +1,21 @@
+.git
+.next
+node_modules
+out
+dist
+data
+
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+.DS_Store
+*.tsbuildinfo
+
+# Local samples and generated artifacts should not enter deployment images.
+c1.pdf
+tmp/
+output/

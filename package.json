@@ -1,0 +1,26 @@
+{
+  "name": "slides-explainer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "lucide-react": "latest",
+    "next": "latest",
+    "openai": "latest",
+    "pdfjs-dist": "^3.11.174",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  }
+}
