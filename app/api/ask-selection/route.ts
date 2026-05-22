@@ -3,6 +3,7 @@ import { hasBetaAccess, isBetaAccessRequired } from "@/lib/access";
 import { generateSelectionAnswer } from "@/lib/ai";
 import { checkRateLimit, createTimeoutController, publicErrorMessage } from "@/lib/guardrails";
 import { getHardeningConfig } from "@/lib/limits";
+import type { DocumentKind } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -14,6 +15,7 @@ type AskSelectionRequest = {
   selectedText?: string;
   question?: string;
   pageContext?: string;
+  documentKind?: DocumentKind;
 };
 
 const MAX_SELECTED_TEXT_CHARS = 4000;
@@ -69,7 +71,8 @@ export async function POST(request: Request) {
     }
 
     const answer = await generateSelectionAnswer({
-      documentTitle: cleanText(body.documentTitle) || "Slides Explainer",
+      documentTitle: cleanText(body.documentTitle) || "KnowExper",
+      documentKind: body.documentKind,
       pageNumber: Number.isFinite(body.pageNumber) ? body.pageNumber : undefined,
       sourceLabel: cleanText(body.sourceLabel) || "页面选中文字",
       selectedText,

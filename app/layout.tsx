@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Slides Explainer",
-  description: "Upload PDF slides, render each page, and generate detailed Chinese explanations.",
+  title: "KnowExper",
+  description: "Upload course slides or academic papers, render each page, and generate detailed Chinese explanations.",
   robots: {
     index: false,
     follow: false,

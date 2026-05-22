@@ -1,5 +1,6 @@
 import { hasBetaAccess, isBetaAccessRequired } from "@/lib/access";
 import { generateSlideExplanation, getAiConfigStatus } from "@/lib/ai";
+import { detectDocumentKind, documentKindLabels } from "@/lib/document-kind";
 import { createStoredDocument, documentUrl, getStoredDocument, hashPdfBytes } from "@/lib/documents";
 import {
   assertNotAborted,
@@ -45,7 +46,7 @@ function isPptx(file: File) {
 }
 
 function titleFromFileName(fileName: string) {
-  return fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "Slides Explainer";
+  return fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "KnowExper";
 }
 
 export async function POST(request: Request) {
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
         }
 
         if (isPptx(file)) {
-          throw new Error("MVP 目前优先支持 PDF。PPTX 可先导出为 PDF 后上传，后续可接入 PPTX 转 PDF 服务。");
+          throw new Error("当前公开 MVP 先支持 PDF。PPTX 会在接入转换服务后支持；现在请先把 PPTX 导出为 PDF 后上传。");
         }
 
         if (!isPdf(file)) {
@@ -135,12 +136,13 @@ export async function POST(request: Request) {
             fileName: cachedDocument.fileName,
             pageCount: cachedDocument.pageCount,
             maxPages: limits.maxPages,
+            documentKind: cachedDocument.documentKind,
           });
           send(controller, {
             type: "progress",
             phase: "done",
             percent: 100,
-            message: "已找到同一份 PDF 的历史讲解，直接打开保存结果。",
+            message: "已找到同一份文档的历史详解，直接打开保存结果。",
           });
           send(controller, {
             type: "done",
@@ -149,6 +151,7 @@ export async function POST(request: Request) {
             documentId: cachedDocument.id,
             documentUrl: documentUrl(cachedDocument.id),
             cached: true,
+            documentKind: cachedDocument.documentKind,
           });
           return;
         }
@@ -174,13 +177,33 @@ export async function POST(request: Request) {
               type: "progress",
               phase: "render",
               percent,
-              message: `正在渲染 slide ${pageNumber}/${pageCount}。`,
+              message: `正在渲染第 ${pageNumber}/${pageCount} 页。`,
             });
           },
         });
 
         const slides: SlideResult[] = [];
         const pageCount = knownPageCount || rendered.length;
+        const documentKind = detectDocumentKind({
+          fileName: file.name,
+          title,
+          pages: rendered,
+        });
+
+        send(controller, {
+          type: "meta",
+          title,
+          fileName: file.name,
+          pageCount,
+          maxPages: limits.maxPages,
+          documentKind,
+        });
+        send(controller, {
+          type: "progress",
+          phase: "ai",
+          percent: 43,
+          message: `已识别为${documentKindLabels[documentKind]}，正在选择详解框架。`,
+        });
 
         for (const [index, slide] of rendered.entries()) {
           assertNotAborted(jobTimeout.signal);
@@ -192,7 +215,7 @@ export async function POST(request: Request) {
             type: "progress",
             phase: "ai",
             percent,
-            message: `正在生成第 ${pageNumber} 页中文讲解。`,
+            message: `正在生成第 ${pageNumber} 页中文详解。`,
           });
 
           const result: SlideResult = { ...slide };
@@ -200,6 +223,7 @@ export async function POST(request: Request) {
           try {
             result.explanation = await generateSlideExplanation({
               documentTitle: title,
+              documentKind,
               pageNumber,
               pageText: slide.text,
               imageDataUrl: slide.imageDataUrl,
@@ -226,6 +250,7 @@ export async function POST(request: Request) {
           fileHash,
           fileName: file.name,
           title,
+          documentKind,
           slides,
         });
 
@@ -241,6 +266,7 @@ export async function POST(request: Request) {
           slides,
           documentId: storedDocument.id,
           documentUrl: documentUrl(storedDocument.id),
+          documentKind,
         });
       } catch (error) {
         send(controller, {

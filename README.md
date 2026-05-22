@@ -1,18 +1,20 @@
-# Slides Explainer
+# KnowExper
 
-一个可部署的 slides explainer Web App。用户上传 PDF 课件后，服务端逐页渲染 slide 图片、抽取文字，并通过 Highland / OpenAI-compatible 网关生成详细中文讲解。
+KnowExper 是一个可部署的 knowledge explainer / explorer Web App。用户上传 PDF 后，服务端逐页渲染页面图片、抽取文字，自动判断文档更像课程课件、学术论文还是普通知识文档，并通过 Highland / OpenAI-compatible 网关生成细粒度中文详解。
 
 ## 功能
 
 - PDF 上传、文件大小限制、页数限制、类型限制
-- 服务端逐页渲染 slide PNG，并抽取每页文本
-- 每页生成中文讲解：原页要点、详细解释、容易混淆点、这一页要记住什么
-- 桌面端左侧解释、右侧 slide；手机端 slide 在上、解释在下
+- 服务端逐页渲染页面 PNG，并抽取每页文本
+- 自动识别文档类型：课程课件、学术论文、普通知识文档
+- 课程课件生成：原页要点、详细解释、容易混淆点、这一页要记住什么
+- 学术论文生成：原文 / 图表要点、细读解释、容易误读点、这一页要记住什么
+- 桌面端左侧解释、右侧原页；手机端原页在上、解释在下
 - 顶部页码导航、页内原图弹窗、处理进度、错误提示
-- 单页重新生成讲解
+- 单页重新生成详解
 - 生成完成后保存为可复访文档链接；同一份 PDF 再上传会命中缓存，不重复调用模型
 - 支持选中 AI 讲解或抽取原文后继续提问，并在可拖动浮窗里追加回答
-- MVP 优先支持 PDF；PPTX 建议先导出为 PDF，后续可接入 PPTX 转 PDF 服务
+- 当前公开 MVP 先支持 PDF；PPTX 规划为先转换成 PDF，再复用同一套渲染和详解链路
 
 ## 本地运行
 
@@ -22,7 +24,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-打开 [http://localhost:3000](http://localhost:3000)，上传 `c1.pdf` 或其他 PDF。
+打开 [http://localhost:3000](http://localhost:3000)，上传课程课件 PDF、论文 PDF 或其他知识文档 PDF。
 
 ## 环境变量
 
@@ -50,14 +52,14 @@ DOCUMENT_STORE_DIR=./data/documents
 说明：
 
 - `HIGHLAND_BASE_URL` 和 `HIGHLAND_API_KEY` 只在服务端使用，不会暴露给浏览器。
-- `HIGHLAND_MODEL` 需要选择支持图像输入的模型，因为每页会把 slide 图片和抽取文字一起发给模型。
+- `HIGHLAND_MODEL` 需要选择支持图像输入的模型，因为每页会把页面图片和抽取文字一起发给模型。
 - 如果不用 Highland，也可以设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 作为兼容 fallback。
 - `BETA_ACCESS_CODE` 是可选的小范围测试访问码。留空时不启用；设置后，上传和重新生成都需要前端填写同一个访问码。修改后需要重启服务。
-- `PROCESS_RATE_LIMIT` 是每个 IP 在一个时间窗口内可上传处理的 PDF 次数。
-- `REGENERATE_RATE_LIMIT` 是每个 IP 在一个时间窗口内可重新生成单页讲解的次数。
+- `PROCESS_RATE_LIMIT` 是每个 IP 在一个时间窗口内可上传处理的文档次数。
+- `REGENERATE_RATE_LIMIT` 是每个 IP 在一个时间窗口内可重新生成单页详解的次数。
 - `ASK_RATE_LIMIT` 是每个 IP 在一个时间窗口内可对选中文字继续提问的次数。
-- `MAX_CONCURRENT_JOBS` 是单实例同时处理的 PDF 任务数。公开 MVP 建议从 `2` 或 `3` 开始。
-- `AI_REQUEST_TIMEOUT_SECONDS` 控制单页模型调用超时；`TOTAL_JOB_TIMEOUT_SECONDS` 控制整份 PDF 任务超时。
+- `MAX_CONCURRENT_JOBS` 是单实例同时处理的文档任务数。公开 MVP 建议从 `2` 或 `3` 开始。
+- `AI_REQUEST_TIMEOUT_SECONDS` 控制单页模型调用超时；`TOTAL_JOB_TIMEOUT_SECONDS` 控制整份文档任务超时。
 - `SLIDE_TEXT_CHAR_LIMIT` 会截断超长的 PDF 文字抽取结果，避免提示词失控；图片仍会完整传给视觉模型。
 - `DOCUMENT_STORE_DIR` 是本地文件系统持久化目录。适合本地和单机小规模测试；正式公开部署建议替换成数据库 + 对象存储。
 
@@ -70,6 +72,7 @@ DOCUMENT_STORE_DIR=./data/documents
 - 每个 IP 的选中文字追问限流。
 - 单实例全局并发任务限制，避免多个大 PDF 同时拖垮进程。
 - 上传大小、页数、文件类型限制。
+- 文档类型启发式识别，按课程课件或学术论文切换不同 AI 详解框架。
 - 单页 AI 请求超时和整份 PDF 任务超时。
 - 超长页面文字截断，降低模型上下文和费用风险。
 - Highland API Key 只读取服务端环境变量，不进入浏览器 bundle。
@@ -84,7 +87,7 @@ DOCUMENT_STORE_DIR=./data/documents
 - Cloudflare / Nginx / 平台侧限流。
 - 用户登录和每用户额度。
 - 后台任务队列，例如 BullMQ、Cloud Tasks 或平台队列。
-- 对象存储保存 slide 图片，数据库保存任务历史。
+- 对象存储保存页面图片，数据库保存任务历史。
 - 管理后台查看失败率、模型费用和用户用量。
 
 ## 文档持久化
@@ -104,9 +107,9 @@ data/documents/{sha256}.json
 这让同一份 PDF 不需要反复上传和重复生成。公开产品版本建议改成：
 
 - 数据库保存文档元数据、用户归属、处理状态、页级解释。
-- 对象存储保存 PDF 原件和 slide 图片，例如 S3、R2、Supabase Storage。
+- 对象存储保存 PDF 原件和页面图片，例如 S3、R2、Supabase Storage。
 - 文档表里保留 `file_hash` 唯一索引，用于跨用户或同用户去重。
-- 如果涉及隐私课件，默认只在同一用户账号下复用，不做全站公开复用。
+- 如果涉及隐私课件、论文草稿或内部材料，默认只在同一用户账号下复用，不做全站公开复用。
 
 ## 小规模公开测试建议
 
@@ -128,7 +131,7 @@ TOTAL_JOB_TIMEOUT_SECONDS=180
 - Highland 后台的模型调用次数、失败率和费用。
 - 部署平台的 CPU / 内存 / 请求超时。
 - 大 PDF、扫描版 PDF、图片很多的 PDF 是否会明显变慢。
-- 用户是否上传了敏感课件；当前版本已在首页提示不要上传敏感或保密文件。
+- 用户是否上传了敏感课件、论文草稿或内部材料；当前版本已在首页提示不要上传敏感或保密文件。
 
 ## 部署
 
@@ -159,8 +162,8 @@ TOTAL_JOB_TIMEOUT_SECONDS=180
 ### Docker / Railway / Render
 
 ```bash
-docker build -t slides-explainer .
-docker run --env-file .env.local -p 3000:3000 -v slides-data:/app/data slides-explainer
+docker build -t knowexper .
+docker run --env-file .env.local -p 3000:3000 -v knowexper-data:/app/data knowexper
 ```
 
 这类 Node 服务更适合处理较长 PDF，因为进程生命周期和函数时长限制更宽松。

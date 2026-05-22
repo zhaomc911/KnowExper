@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "crypto";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import type { SlideExplanation, SlideResult } from "./types";
+import type { DocumentKind, SlideExplanation, SlideResult } from "./types";
 
 export type StoredDocument = {
   version: 1;
@@ -11,6 +11,7 @@ export type StoredDocument = {
   fileHash: string;
   fileName: string;
   title: string;
+  documentKind?: DocumentKind;
   pageCount: number;
   slides: SlideResult[];
   createdAt: string;
@@ -64,11 +65,13 @@ export async function createStoredDocument({
   fileHash,
   fileName,
   title,
+  documentKind,
   slides,
 }: {
   fileHash: string;
   fileName: string;
   title: string;
+  documentKind?: DocumentKind;
   slides: SlideResult[];
 }) {
   const now = new Date().toISOString();
@@ -80,6 +83,7 @@ export async function createStoredDocument({
     fileHash,
     fileName,
     title,
+    documentKind,
     pageCount: slides.length,
     slides,
     createdAt: existing?.createdAt ?? now,

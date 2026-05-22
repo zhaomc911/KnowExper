@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { hasBetaAccess, isBetaAccessRequired } from "@/lib/access";
 import { generateSlideExplanation } from "@/lib/ai";
-import { updateStoredSlideExplanation } from "@/lib/documents";
+import { getStoredDocument, updateStoredSlideExplanation } from "@/lib/documents";
 import { checkRateLimit, createTimeoutController, publicErrorMessage } from "@/lib/guardrails";
 import { getHardeningConfig } from "@/lib/limits";
+import type { DocumentKind } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -14,6 +15,7 @@ type RegenerateRequest = {
   pageNumber?: number;
   pageText?: string;
   imageDataUrl?: string;
+  documentKind?: DocumentKind;
 };
 
 export async function POST(request: Request) {
@@ -42,15 +44,17 @@ export async function POST(request: Request) {
     const body = (await request.json()) as RegenerateRequest;
 
     if (!body.pageNumber || !body.imageDataUrl?.startsWith("data:image/png;base64,")) {
-      return NextResponse.json({ error: "缺少可重新生成的 slide 图片或页码。" }, { status: 400 });
+      return NextResponse.json({ error: "缺少可重新生成的页面图片或页码。" }, { status: 400 });
     }
 
     if (body.imageDataUrl.length > 10 * 1024 * 1024) {
       return NextResponse.json({ error: "这页图片过大，无法重新生成。" }, { status: 413 });
     }
 
+    const storedDocument = body.documentId ? await getStoredDocument(body.documentId) : null;
     const explanation = await generateSlideExplanation({
-      documentTitle: body.documentTitle || "Slides Explainer",
+      documentTitle: body.documentTitle || "KnowExper",
+      documentKind: body.documentKind || storedDocument?.documentKind,
       pageNumber: body.pageNumber,
       pageText: body.pageText || "",
       imageDataUrl: body.imageDataUrl,

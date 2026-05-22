@@ -1,3 +1,5 @@
+export type DocumentKind = "course_slides" | "academic_paper" | "knowledge_document";
+
 export type SlideExplanation = {
   title: string;
   topic: string;
@@ -30,6 +32,7 @@ export type ProcessEvent =
       fileName: string;
       pageCount: number;
       maxPages: number;
+      documentKind?: DocumentKind;
     }
   | {
       type: "page";
@@ -42,6 +45,7 @@ export type ProcessEvent =
       documentId?: string;
       documentUrl?: string;
       cached?: boolean;
+      documentKind?: DocumentKind;
     }
   | {
       type: "error";
@@ -50,9 +54,9 @@ export type ProcessEvent =
 
 export const fallbackExplanation: SlideExplanation = {
   title: "这一页讲什么",
-  topic: "Slide",
+  topic: "知识页",
   keyPoints: ["本页内容已渲染，但讲解生成暂未完成。"],
   detailedExplanation: ["可以点击本页的重新生成按钮，重新调用模型生成中文讲解。"],
   confusionPoints: ["如果重复失败，请检查模型是否支持图像输入，以及网关 Base URL / API Key 是否配置正确。"],
-  remember: "保留 slide 图片和抽取文字后，可以单页重新生成。",
+  remember: "保留页面图片和抽取文字后，可以单页重新生成。",
 };

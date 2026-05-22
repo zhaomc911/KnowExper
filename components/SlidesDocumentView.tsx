@@ -14,7 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from "react";
-import { fallbackExplanation, type SlideExplanation, type SlideResult } from "@/lib/types";
+import { documentKindLabels } from "@/lib/document-kind";
+import { fallbackExplanation, type DocumentKind, type SlideExplanation, type SlideResult } from "@/lib/types";
 
 const BETA_ACCESS_HEADER = "x-beta-access-code";
 const MAX_SELECTED_TEXT_CHARS = 4000;
@@ -136,15 +137,38 @@ const initialDialog: DialogState = {
 function ExplanationArticle({
   slide,
   title,
+  documentKind,
   onRegenerate,
   regenerating,
 }: {
   slide: SlideResult;
   title: string;
+  documentKind?: DocumentKind;
   onRegenerate: (slide: SlideResult) => void;
   regenerating: boolean;
 }) {
   const explanation = slide.explanation ?? fallbackExplanation;
+  const copy =
+    documentKind === "academic_paper"
+      ? {
+          keyPoints: "原文 / 图表要点",
+          detailed: "细读解释",
+          confusion: "容易误读点",
+          remember: "这一页要记住",
+        }
+      : documentKind === "knowledge_document"
+        ? {
+            keyPoints: "页面要点",
+            detailed: "详细解释",
+            confusion: "容易混淆点",
+            remember: "这一页要记住",
+          }
+        : {
+            keyPoints: "原页要点",
+            detailed: "详细解释",
+            confusion: "容易混淆点",
+            remember: "这一页要记住",
+          };
 
   return (
     <article
@@ -173,19 +197,19 @@ function ExplanationArticle({
         </div>
       ) : null}
 
-      <h3>原页要点</h3>
+      <h3>{copy.keyPoints}</h3>
       {renderList(explanation.keyPoints)}
 
-      <h3>详细解释</h3>
+      <h3>{copy.detailed}</h3>
       {explanation.detailedExplanation.map((paragraph, index) => (
         <p key={`${paragraph}-${index}`}>{paragraph}</p>
       ))}
 
-      <h3>容易混淆点</h3>
+      <h3>{copy.confusion}</h3>
       {renderList(explanation.confusionPoints)}
 
       <div className="takeaway">
-        <strong>这一页要记住</strong>
+        <strong>{copy.remember}</strong>
         {explanation.remember}
       </div>
 
@@ -197,6 +221,7 @@ function ExplanationArticle({
 export function SlidesDocumentView({
   title,
   slides,
+  documentKind = "knowledge_document",
   documentId,
   documentUrl,
   accessCode = "",
@@ -204,6 +229,7 @@ export function SlidesDocumentView({
 }: {
   title: string;
   slides: SlideResult[];
+  documentKind?: DocumentKind;
   documentId?: string;
   documentUrl?: string;
   accessCode?: string;
@@ -418,6 +444,7 @@ export function SlidesDocumentView({
         },
         body: JSON.stringify({
           documentTitle: title,
+          documentKind,
           pageNumber: qaPanel.pageNumber,
           sourceLabel: qaPanel.sourceLabel,
           selectedText,
@@ -482,6 +509,7 @@ export function SlidesDocumentView({
         body: JSON.stringify({
           documentId,
           documentTitle: title,
+          documentKind,
           pageNumber: slide.pageNumber,
           pageText: slide.text,
           imageDataUrl: slide.imageDataUrl,
@@ -516,7 +544,7 @@ export function SlidesDocumentView({
           <div className="top-title">
             <h1>{title}</h1>
             <span>
-              {completedPages}/{sortedSlides.length} 页
+              {documentKindLabels[documentKind]} · {completedPages}/{sortedSlides.length} 页
             </span>
           </div>
           <nav className="nav" aria-label="页码导航">
@@ -540,7 +568,7 @@ export function SlidesDocumentView({
             ) : (
               <a className="top-action" href="/">
                 <UploadCloud aria-hidden="true" />
-                <span>上传新课件</span>
+                <span>上传新文档</span>
               </a>
             )}
           </div>
@@ -551,7 +579,7 @@ export function SlidesDocumentView({
         {documentUrl ? (
           <div className="saved-document-banner">
             <strong>已保存</strong>
-            <span>以后可直接打开这个链接查看，不需要再次上传同一份 PDF。</span>
+            <span>以后可直接打开这个链接查看，不需要再次上传同一份文档。</span>
             <a href={documentUrl}>{documentUrl}</a>
           </div>
         ) : null}
@@ -568,6 +596,7 @@ export function SlidesDocumentView({
             <ExplanationArticle
               slide={slide}
               title={title}
+              documentKind={documentKind}
               onRegenerate={(nextSlide) => void regenerateSlide(nextSlide)}
               regenerating={regeneratingPages.has(slide.pageNumber)}
             />
@@ -575,18 +604,18 @@ export function SlidesDocumentView({
             <aside className="slide-column">
               <figure className="slide-frame">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={slide.imageDataUrl} alt={`${title} slide ${slide.pageNumber}`} />
+                <img src={slide.imageDataUrl} alt={`${title} page ${slide.pageNumber}`} />
               </figure>
               <div className="slide-meta">
-                <span>Slide {slide.pageNumber}</span>
+                <span>Page {slide.pageNumber}</span>
                 <button
                   type="button"
                   onClick={() =>
                     setDialog({
                       open: true,
                       imageDataUrl: slide.imageDataUrl,
-                      title: `Slide ${slide.pageNumber} 原图`,
-                      alt: `${title} slide ${slide.pageNumber}`,
+                      title: `第 ${slide.pageNumber} 页原图`,
+                      alt: `${title} page ${slide.pageNumber}`,
                     })
                   }
                 >

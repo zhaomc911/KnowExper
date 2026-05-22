@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const document = await getStoredDocument(id);
 
   return {
-    title: document ? `${document.title} | Slides Explainer` : "Document not found",
+    title: document ? `${document.title} | KnowExper` : "Document not found",
   };
 }
 
@@ -33,6 +33,7 @@ export default async function StoredDocumentPage({ params }: PageProps) {
     <SlidesDocumentView
       title={document.title}
       slides={document.slides}
+      documentKind={document.documentKind}
       documentId={document.id}
       documentUrl={documentUrl(document.id)}
     />

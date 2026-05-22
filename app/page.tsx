@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { SlidesDocumentView } from "@/components/SlidesDocumentView";
-import type { ProcessEvent, SlideResult } from "@/lib/types";
+import { documentKindLabels } from "@/lib/document-kind";
+import type { DocumentKind, ProcessEvent, SlideResult } from "@/lib/types";
 
 type ConfigResponse = {
   limits: {
@@ -49,8 +50,8 @@ const initialProgress: ProgressState = {
   phase: "validate",
 };
 
-const ACCESS_STORAGE_KEY = "slides-explainer-beta-access-code";
-const RECENT_DOCUMENTS_KEY = "slides-explainer-recent-documents";
+const ACCESS_STORAGE_KEY = "knowexper-beta-access-code";
+const RECENT_DOCUMENTS_KEY = "knowexper-recent-documents";
 const BETA_ACCESS_HEADER = "x-beta-access-code";
 
 function normalizeFileTitle(file: File) {
@@ -71,6 +72,7 @@ type RecentDocument = {
   pageCount: number;
   url: string;
   createdAt: string;
+  documentKind?: DocumentKind;
 };
 
 function UploadWorkbench({
@@ -118,8 +120,8 @@ function UploadWorkbench({
           <div className="upload-mark" aria-hidden="true">
             <UploadCloud />
           </div>
-          <h1>Slides Explainer</h1>
-          <p>上传 PDF 课件，逐页生成中文讲解。</p>
+          <h1>KnowExper</h1>
+          <p>上传 PDF 课件或论文，自动识别类型并生成细粒度中文详解。</p>
         </div>
 
         <div className="upload-actions">
@@ -129,6 +131,7 @@ function UploadWorkbench({
           </button>
           <div className="limit-row">
             <span>PDF</span>
+            <span>PPTX 规划中</span>
             <span>{config ? `≤ ${config.limits.maxUploadMb} MB` : "读取限制中"}</span>
             <span>{config ? `≤ ${config.limits.maxPages} 页` : ""}</span>
           </div>
@@ -163,7 +166,7 @@ function UploadWorkbench({
 
         <div className="privacy-note">
           <ShieldCheck aria-hidden="true" />
-          <span>公开测试版：PDF 会发送到本站后端并调用 Highland 模型生成讲解，请勿上传敏感或受保密限制的课件。</span>
+          <span>公开测试版：文档会发送到本站后端并调用 Highland 模型生成详解，请勿上传敏感或受保密限制的资料。</span>
         </div>
 
         {recentDocuments.length ? (
@@ -173,7 +176,7 @@ function UploadWorkbench({
               {recentDocuments.map((document) => (
                 <a href={document.url} key={document.id}>
                   <span>{document.title}</span>
-                  <strong>{document.pageCount} 页</strong>
+                  <strong>{document.documentKind ? documentKindLabels[document.documentKind] : "文档"} · {document.pageCount} 页</strong>
                 </a>
               ))}
             </div>
@@ -215,7 +218,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [slides, setSlides] = useState<SlideResult[]>([]);
-  const [documentTitle, setDocumentTitle] = useState("Slides Explainer");
+  const [documentTitle, setDocumentTitle] = useState("KnowExper");
+  const [documentKind, setDocumentKind] = useState<DocumentKind>("knowledge_document");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<ProgressState>(initialProgress);
   const [error, setError] = useState("");
@@ -258,7 +262,7 @@ export default function Home() {
 
   function validateFile(file: File) {
     if (isPptx(file)) {
-      return "MVP 目前优先支持 PDF。请先把 PPTX 导出为 PDF 后上传。";
+      return "当前公开 MVP 先支持 PDF。PPTX 会在接入转换服务后支持；现在请先把 PPTX 导出为 PDF 后上传。";
     }
 
     if (!isPdf(file)) {
@@ -327,12 +331,13 @@ export default function Home() {
     setDocumentId("");
     setDocumentUrl("");
     setError("");
-    setDocumentTitle(normalizeFileTitle(file) || "Slides Explainer");
+    setDocumentKind("knowledge_document");
+    setDocumentTitle(normalizeFileTitle(file) || "KnowExper");
     setProgress({
       active: true,
       percent: 1,
       phase: "validate",
-      message: "正在上传课件。",
+      message: "正在上传文档。",
     });
 
     const formData = new FormData();
@@ -372,6 +377,7 @@ export default function Home() {
 
           if (event.type === "meta") {
             setDocumentTitle(event.title);
+            if (event.documentKind) setDocumentKind(event.documentKind);
           }
 
           if (event.type === "page") {
@@ -381,6 +387,7 @@ export default function Home() {
           if (event.type === "done") {
             setDocumentTitle(event.title);
             setSlides(event.slides);
+            if (event.documentKind) setDocumentKind(event.documentKind);
             setDocumentId(event.documentId ?? "");
             setDocumentUrl(event.documentUrl ?? "");
             if (event.documentId && event.documentUrl) {
@@ -390,6 +397,7 @@ export default function Home() {
                 pageCount: event.slides.length,
                 url: event.documentUrl,
                 createdAt: new Date().toISOString(),
+                documentKind: event.documentKind,
               });
               window.history.replaceState(null, "", event.documentUrl);
             }
@@ -411,7 +419,8 @@ export default function Home() {
   function resetApp() {
     setSlides([]);
     setSelectedFile(null);
-    setDocumentTitle("Slides Explainer");
+    setDocumentTitle("KnowExper");
+    setDocumentKind("knowledge_document");
     setDocumentId("");
     setDocumentUrl("");
     setProgress(initialProgress);
@@ -425,6 +434,7 @@ export default function Home() {
       <SlidesDocumentView
         title={documentTitle}
         slides={sortedSlides}
+        documentKind={documentKind}
         documentId={documentId}
         documentUrl={documentUrl}
         accessCode={accessCode}
@@ -450,7 +460,7 @@ export default function Home() {
         <div className="app-topbar-inner">
           <div className="brand-lockup">
             <WandSparkles aria-hidden="true" />
-            <span>Slides Explainer</span>
+            <span>KnowExper</span>
           </div>
           <button className="top-action" type="button" onClick={() => fileInputRef.current?.click()}>
             <UploadCloud aria-hidden="true" />
