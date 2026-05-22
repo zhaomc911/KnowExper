@@ -612,7 +612,7 @@ export default function PaperExplainerPage() {
       </main>
 
       <footer className={styles.footer}>
-        本地学习页生成自你提供的 PDF：/Users/zhaomc/Research/论文分享/Rapid concerted switching of the neural code in the inferotemporal cortex.pdf
+        本地学习页生成自论文 PDF：Rapid concerted switching of the neural code in the inferotemporal cortex.pdf
       </footer>
     </div>
   );

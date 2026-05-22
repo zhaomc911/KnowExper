@@ -2,9 +2,12 @@ import { DOMMatrix, ImageData, createCanvas } from "canvas";
 import fs from "fs/promises";
 import path from "path";
 
-const inputPdf =
-  process.argv[2] ??
-  "/Users/zhaomc/Research/论文分享/Rapid concerted switching of the neural code in the inferotemporal cortex.pdf";
+const inputPdf = process.argv[2];
+
+if (!inputPdf) {
+  console.error("Usage: node scripts/generate-paper-assets.mjs /path/to/paper.pdf");
+  process.exit(1);
+}
 
 const outRoot = path.join(process.cwd(), "public/paper-it-switching");
 const pageDir = path.join(outRoot, "pages");
@@ -86,7 +89,7 @@ async function main() {
     path.join(outRoot, "manifest.json"),
     JSON.stringify(
       {
-        source: inputPdf,
+        source: path.basename(inputPdf),
         pageCount: pages.length,
         scale,
         generatedAt: new Date().toISOString(),
