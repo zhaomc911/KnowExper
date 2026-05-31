@@ -265,6 +265,46 @@ button:disabled {
   font-size: 18px;
 }
 
+.document-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.document-mode-grid div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  border: 1px solid rgba(23, 107, 87, 0.16);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 12px;
+}
+
+.document-mode-grid svg {
+  grid-row: span 2;
+  width: 21px;
+  height: 21px;
+  color: var(--accent);
+}
+
+.document-mode-grid span {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.3;
+}
+
+.document-mode-grid strong {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
 .upload-actions {
   display: flex;
   align-items: center;
@@ -297,6 +337,71 @@ button:disabled {
   color: var(--muted);
   font-size: 13px;
   font-weight: 720;
+}
+
+.range-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(40, 50, 68, 0.12);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.76);
+  padding: 12px;
+}
+
+.range-copy {
+  display: grid;
+  gap: 2px;
+  min-width: min(100%, 260px);
+}
+
+.range-copy strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.range-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.range-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.range-inputs label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.range-inputs input {
+  width: 86px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 12px;
+  outline: none;
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.range-inputs input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(23, 107, 87, 0.12);
 }
 
 .status-strip,
@@ -1179,6 +1284,24 @@ li {
 
   .upload-copy p {
     font-size: 16px;
+  }
+
+  .document-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .range-panel {
+    align-items: stretch;
+  }
+
+  .range-inputs,
+  .range-inputs label {
+    width: 100%;
+  }
+
+  .range-inputs input {
+    flex: 1 1 auto;
+    width: auto;
   }
 
   h2 {

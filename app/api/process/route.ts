@@ -11,6 +11,7 @@ import {
 } from "@/lib/guardrails";
 import { getHardeningConfig, getProcessingLimits } from "@/lib/limits";
 import { renderPdfSlides } from "@/lib/pdf";
+import { convertPptxToPdf } from "@/lib/pptx";
 import type { ProcessEvent, SlideResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,6 +50,18 @@ function titleFromFileName(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "KnowExper";
 }
 
+function pageNumberFromForm(value: FormDataEntryValue | null) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return undefined;
+
+  const number = Number(text);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new Error("页码范围必须是大于 0 的整数。");
+  }
+
+  return number;
+}
+
 export async function POST(request: Request) {
   const limits = getProcessingLimits();
   const hardening = getHardeningConfig();
@@ -83,7 +96,7 @@ export async function POST(request: Request) {
     formData = await request.formData();
   } catch {
     releaseJobSlot();
-    return errorStream("无法读取上传文件，请重新上传 PDF。", 400);
+    return errorStream("无法读取上传文件，请重新上传。", 400);
   }
 
   const file = formData.get("file");
@@ -97,15 +110,12 @@ export async function POST(request: Request) {
 
       try {
         if (!(file instanceof File)) {
-          throw new Error("请上传一个 PDF 文件。");
+          throw new Error("请上传一个 PDF 或 PPTX 文件。");
         }
 
-        if (isPptx(file)) {
-          throw new Error("当前公开 MVP 先支持 PDF。PPTX 会在接入转换服务后支持；现在请先把 PPTX 导出为 PDF 后上传。");
-        }
-
-        if (!isPdf(file)) {
-          throw new Error("当前仅支持 PDF 文件。");
+        const sourceType = isPptx(file) ? "pptx" : "pdf";
+        if (!isPdf(file) && !isPptx(file)) {
+          throw new Error("当前支持 PDF 和 PPTX 文件。");
         }
 
         if (file.size > limits.maxUploadBytes) {
@@ -118,15 +128,30 @@ export async function POST(request: Request) {
         }
 
         const title = String(formData.get("title") || titleFromFileName(file.name)).trim();
+        const requestedStartPage = pageNumberFromForm(formData.get("startPage"));
+        const requestedEndPage = pageNumberFromForm(formData.get("endPage"));
+
+        if (requestedStartPage && requestedEndPage && requestedStartPage > requestedEndPage) {
+          throw new Error("页码范围无效：起始页不能大于结束页。");
+        }
+
+        if (requestedStartPage && requestedEndPage && requestedEndPage - requestedStartPage + 1 > limits.maxPages) {
+          throw new Error(`本次选择 ${requestedEndPage - requestedStartPage + 1} 页，超过当前限制 ${limits.maxPages} 页。`);
+        }
+
         send(controller, {
           type: "progress",
           phase: "validate",
           percent: 6,
-          message: "文件已接收，正在校验 PDF。",
+          message: "文件已接收，正在校验格式和页码范围。",
         });
 
-        const buffer = await file.arrayBuffer();
-        const fileHash = hashPdfBytes(buffer);
+        const originalBuffer = await file.arrayBuffer();
+        const rangeSalt =
+          requestedStartPage || requestedEndPage
+            ? `range:${requestedStartPage || ""}-${requestedEndPage || ""}`
+            : "";
+        const fileHash = hashPdfBytes(originalBuffer, [sourceType === "pptx" ? "source:pptx" : "", rangeSalt].filter(Boolean).join("|"));
         const cachedDocument = await getStoredDocument(fileHash);
 
         if (cachedDocument) {
@@ -156,34 +181,53 @@ export async function POST(request: Request) {
           return;
         }
 
+        let buffer = originalBuffer;
+        if (sourceType === "pptx") {
+          send(controller, {
+            type: "progress",
+            phase: "validate",
+            percent: 8,
+            message: "正在把 PPTX 转换为 PDF。",
+          });
+          buffer = await convertPptxToPdf(originalBuffer, file.name);
+        }
+
         let knownPageCount = 0;
+        let selectedPageCount = 0;
+        let effectiveStartPage = requestedStartPage || 1;
+        let effectiveEndPage = requestedEndPage || 1;
         const rendered = await renderPdfSlides(buffer, {
           maxPages: limits.maxPages,
           scale: limits.renderScale,
+          startPage: requestedStartPage,
+          endPage: requestedEndPage,
           signal: jobTimeout.signal,
-          onPageCount: (pageCount) => {
-            knownPageCount = pageCount;
+          onPageCount: ({ totalPageCount, selectedPageCount: selectedCount, startPage, endPage }) => {
+            knownPageCount = totalPageCount;
+            selectedPageCount = selectedCount;
+            effectiveStartPage = startPage;
+            effectiveEndPage = endPage;
             send(controller, {
               type: "meta",
               title,
               fileName: file.name,
-              pageCount,
+              pageCount: selectedCount,
               maxPages: limits.maxPages,
             });
           },
-          onProgress: ({ pageNumber, pageCount }) => {
-            const percent = 8 + Math.round((pageNumber / pageCount) * 34);
+          onProgress: ({ pageNumber, pageIndex, selectedPageCount }) => {
+            const percent = 10 + Math.round((pageIndex / selectedPageCount) * 32);
             send(controller, {
               type: "progress",
               phase: "render",
               percent,
-              message: `正在渲染第 ${pageNumber}/${pageCount} 页。`,
+              message: `正在渲染第 ${pageNumber} 页（${pageIndex}/${selectedPageCount}）。`,
             });
           },
         });
 
         const slides: SlideResult[] = [];
-        const pageCount = knownPageCount || rendered.length;
+        const pageCount = selectedPageCount || rendered.length;
         const documentKind = detectDocumentKind({
           fileName: file.name,
           title,
@@ -251,6 +295,12 @@ export async function POST(request: Request) {
           fileName: file.name,
           title,
           documentKind,
+          sourceType,
+          pageRange: {
+            startPage: effectiveStartPage,
+            endPage: effectiveEndPage,
+            totalPageCount: knownPageCount || effectiveEndPage,
+          },
           slides,
         });
 

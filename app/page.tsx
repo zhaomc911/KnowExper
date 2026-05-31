@@ -2,9 +2,11 @@
 
 import {
   AlertCircle,
+  BookOpen,
   FileText,
   KeyRound,
   Loader2,
+  Presentation,
   ShieldCheck,
   UploadCloud,
   WandSparkles,
@@ -85,6 +87,10 @@ function UploadWorkbench({
   accessCode,
   onAccessCodeChange,
   recentDocuments,
+  startPage,
+  endPage,
+  onStartPageChange,
+  onEndPageChange,
 }: {
   config: ConfigResponse | null;
   progress: ProgressState;
@@ -95,6 +101,10 @@ function UploadWorkbench({
   accessCode: string;
   onAccessCodeChange: (value: string) => void;
   recentDocuments: RecentDocument[];
+  startPage: string;
+  endPage: string;
+  onStartPageChange: (value: string) => void;
+  onEndPageChange: (value: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
 
@@ -121,19 +131,67 @@ function UploadWorkbench({
             <UploadCloud />
           </div>
           <h1>KnowExper</h1>
-          <p>上传 PDF 课件或论文，自动识别类型并生成细粒度中文详解。</p>
+          <p>上传课程 slides、PPTX/PDF 课件或学术论文，自动识别类型并生成细粒度中文详解。</p>
+        </div>
+
+        <div className="document-mode-grid" aria-label="支持的文档类型">
+          <div>
+            <Presentation aria-hidden="true" />
+            <span>课程 slides</span>
+            <strong>按页精讲概念、图示、公式和复习重点</strong>
+          </div>
+          <div>
+            <BookOpen aria-hidden="true" />
+            <span>学术论文</span>
+            <strong>按论文逻辑细读问题、方法、结果和图表</strong>
+          </div>
         </div>
 
         <div className="upload-actions">
           <button className="primary-button" type="button" onClick={onPickFile} disabled={progress.active}>
             <FileText aria-hidden="true" />
-            <span>选择 PDF</span>
+            <span>选择文件</span>
           </button>
           <div className="limit-row">
             <span>PDF</span>
-            <span>PPTX 规划中</span>
+            <span>PPTX</span>
             <span>{config ? `≤ ${config.limits.maxUploadMb} MB` : "读取限制中"}</span>
-            <span>{config ? `≤ ${config.limits.maxPages} 页` : ""}</span>
+            <span>{config ? `单次 ≤ ${config.limits.maxPages} 页` : ""}</span>
+          </div>
+        </div>
+
+        <div className="range-panel">
+          <div className="range-copy">
+            <strong>精讲范围</strong>
+            <span>适合课件只讲某一章；留空则处理整份文档。</span>
+          </div>
+          <div className="range-inputs">
+            <label>
+              <span>从第</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                placeholder="1"
+                value={startPage}
+                disabled={progress.active}
+                onChange={(event) => onStartPageChange(event.currentTarget.value)}
+              />
+              <span>页</span>
+            </label>
+            <label>
+              <span>到第</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                placeholder="末页"
+                value={endPage}
+                disabled={progress.active}
+                onChange={(event) => onEndPageChange(event.currentTarget.value)}
+              />
+              <span>页</span>
+            </label>
           </div>
         </div>
 
@@ -224,6 +282,8 @@ export default function Home() {
   const [progress, setProgress] = useState<ProgressState>(initialProgress);
   const [error, setError] = useState("");
   const [accessCode, setAccessCode] = useState("");
+  const [startPage, setStartPage] = useState("");
+  const [endPage, setEndPage] = useState("");
   const [documentId, setDocumentId] = useState("");
   const [documentUrl, setDocumentUrl] = useState("");
   const [recentDocuments, setRecentDocuments] = useState<RecentDocument[]>([]);
@@ -260,13 +320,34 @@ export default function Home() {
     }
   }, []);
 
-  function validateFile(file: File) {
-    if (isPptx(file)) {
-      return "当前公开 MVP 先支持 PDF。PPTX 会在接入转换服务后支持；现在请先把 PPTX 导出为 PDF 后上传。";
+  function parseRangeValue(value: string, label: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const number = Number(trimmed);
+    if (!Number.isInteger(number) || number < 1) {
+      throw new Error(`${label}必须是大于 0 的整数。`);
+    }
+    return number;
+  }
+
+  function currentPageRange() {
+    const start = parseRangeValue(startPage, "起始页");
+    const end = parseRangeValue(endPage, "结束页");
+
+    if (start && end && start > end) {
+      throw new Error("页码范围无效：起始页不能大于结束页。");
     }
 
-    if (!isPdf(file)) {
-      return "当前仅支持 PDF 文件。";
+    if (config && start && end && end - start + 1 > config.limits.maxPages) {
+      throw new Error(`本次选择 ${end - start + 1} 页，超过当前限制 ${config.limits.maxPages} 页。`);
+    }
+
+    return { start, end };
+  }
+
+  function validateFile(file: File) {
+    if (!isPdf(file) && !isPptx(file)) {
+      return "当前支持 PDF 和 PPTX 文件。";
     }
 
     if (config && file.size > config.limits.maxUploadMb * 1024 * 1024) {
@@ -279,6 +360,12 @@ export default function Home() {
 
     if (config?.access.required && !accessCode.trim()) {
       return "请输入测试访问码。";
+    }
+
+    try {
+      currentPageRange();
+    } catch (rangeError) {
+      return rangeError instanceof Error ? rangeError.message : "页码范围无效。";
     }
 
     return "";
@@ -343,6 +430,9 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("title", normalizeFileTitle(file));
+    const range = currentPageRange();
+    if (range.start) formData.append("startPage", String(range.start));
+    if (range.end) formData.append("endPage", String(range.end));
 
     try {
       const response = await fetch("/api/process", {
@@ -421,6 +511,8 @@ export default function Home() {
     setSelectedFile(null);
     setDocumentTitle("KnowExper");
     setDocumentKind("knowledge_document");
+    setStartPage("");
+    setEndPage("");
     setDocumentId("");
     setDocumentUrl("");
     setProgress(initialProgress);
@@ -478,6 +570,10 @@ export default function Home() {
           accessCode={accessCode}
           onAccessCodeChange={updateAccessCode}
           recentDocuments={recentDocuments}
+          startPage={startPage}
+          endPage={endPage}
+          onStartPageChange={setStartPage}
+          onEndPageChange={setEndPage}
           onPickFile={() => fileInputRef.current?.click()}
           onDropFile={(file) => void processFile(file)}
         />

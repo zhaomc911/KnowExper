@@ -23,6 +23,9 @@ ENV PORT=3000
 ENV DOCUMENT_STORE_DIR=/app/data/documents
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+  libreoffice-impress \
+  fonts-liberation \
+  fonts-noto-cjk \
   libcairo2 \
   libgif7 \
   libjpeg62-turbo \

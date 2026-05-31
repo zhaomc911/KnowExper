@@ -6,7 +6,9 @@ import { assertNotAborted } from "./guardrails";
 
 type PdfProgress = {
   pageNumber: number;
-  pageCount: number;
+  pageIndex: number;
+  selectedPageCount: number;
+  totalPageCount: number;
 };
 
 type RenderedSlide = {
@@ -20,8 +22,10 @@ type RenderedSlide = {
 type RenderPdfOptions = {
   maxPages: number;
   scale: number;
+  startPage?: number;
+  endPage?: number;
   signal?: AbortSignal;
-  onPageCount?: (pageCount: number) => void;
+  onPageCount?: (info: { totalPageCount: number; selectedPageCount: number; startPage: number; endPage: number }) => void;
   onProgress?: (progress: PdfProgress) => void;
 };
 
@@ -91,22 +95,39 @@ export async function renderPdfSlides(buffer: ArrayBuffer, options: RenderPdfOpt
 
   const document = await loadingTask.promise;
   const pageCount = document.numPages;
-  options.onPageCount?.(pageCount);
+  const startPage = Math.max(1, Math.floor(options.startPage || 1));
+  const endPage = Math.min(pageCount, Math.floor(options.endPage || pageCount));
+  const selectedPageCount = Math.max(0, endPage - startPage + 1);
 
-  if (pageCount > options.maxPages) {
+  if (startPage > pageCount) {
     await document.destroy();
-    throw new Error(`这个 PDF 有 ${pageCount} 页，超过当前限制 ${options.maxPages} 页。`);
+    throw new Error(`这个 PDF 只有 ${pageCount} 页，不能从第 ${startPage} 页开始精讲。`);
+  }
+
+  if (endPage < startPage || selectedPageCount < 1) {
+    await document.destroy();
+    throw new Error("页码范围无效，请确认起始页不大于结束页。");
+  }
+
+  options.onPageCount?.({ totalPageCount: pageCount, selectedPageCount, startPage, endPage });
+
+  if (selectedPageCount > options.maxPages) {
+    await document.destroy();
+    throw new Error(`本次选择 ${selectedPageCount} 页，超过当前限制 ${options.maxPages} 页。请缩小精讲范围。`);
   }
 
   const canvasFactory = new NodeCanvasFactory();
   const slides: RenderedSlide[] = [];
 
   try {
-    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    let pageIndex = 0;
+
+    for (let pageNumber = startPage; pageNumber <= endPage; pageNumber += 1) {
       if (options.signal) {
         assertNotAborted(options.signal);
       }
 
+      pageIndex += 1;
       const page = await document.getPage(pageNumber);
       const textContent = await page.getTextContent();
       const text = textFromItems(textContent.items as unknown[]);
@@ -135,7 +156,7 @@ export async function renderPdfSlides(buffer: ArrayBuffer, options: RenderPdfOpt
 
       canvasFactory.destroy(canvasAndContext);
       page.cleanup();
-      options.onProgress?.({ pageNumber, pageCount });
+      options.onProgress?.({ pageNumber, pageIndex, selectedPageCount, totalPageCount: pageCount });
     }
   } finally {
     await document.destroy();

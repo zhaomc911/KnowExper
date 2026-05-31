@@ -12,6 +12,12 @@ export type StoredDocument = {
   fileName: string;
   title: string;
   documentKind?: DocumentKind;
+  sourceType?: "pdf" | "pptx";
+  pageRange?: {
+    startPage: number;
+    endPage: number;
+    totalPageCount: number;
+  };
   pageCount: number;
   slides: SlideResult[];
   createdAt: string;
@@ -32,9 +38,11 @@ function documentPath(id: string) {
   return path.join(DOCUMENT_STORE_DIR, `${id}.json`);
 }
 
-export function hashPdfBytes(bytes: ArrayBuffer | Uint8Array) {
+export function hashPdfBytes(bytes: ArrayBuffer | Uint8Array, salt = "") {
   const buffer = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  return createHash("sha256").update(buffer).digest("hex");
+  const hash = createHash("sha256").update(buffer);
+  if (salt) hash.update(`\n${salt}`);
+  return hash.digest("hex");
 }
 
 export function documentUrl(id: string) {
@@ -66,12 +74,16 @@ export async function createStoredDocument({
   fileName,
   title,
   documentKind,
+  sourceType,
+  pageRange,
   slides,
 }: {
   fileHash: string;
   fileName: string;
   title: string;
   documentKind?: DocumentKind;
+  sourceType?: "pdf" | "pptx";
+  pageRange?: StoredDocument["pageRange"];
   slides: SlideResult[];
 }) {
   const now = new Date().toISOString();
@@ -84,6 +96,8 @@ export async function createStoredDocument({
     fileName,
     title,
     documentKind,
+    sourceType,
+    pageRange,
     pageCount: slides.length,
     slides,
     createdAt: existing?.createdAt ?? now,

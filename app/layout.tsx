@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "KnowExper",
-  description: "Upload course slides or academic papers, render each page, and generate detailed Chinese explanations.",
+  description: "Upload PDF or PPTX course slides and academic papers, render each page, and generate detailed Chinese explanations.",
   robots: {
     index: false,
     follow: false,
