@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { hasBetaAccess, isBetaAccessRequired } from "@/lib/access";
+import { getCurrentUser } from "@/lib/auth";
 import { generateSlideExplanation } from "@/lib/ai";
-import { getStoredDocument, updateStoredSlideExplanation } from "@/lib/documents";
+import { canAccessStoredDocument, getStoredDocument, updateStoredSlideExplanation } from "@/lib/documents";
 import { checkRateLimit, createTimeoutController, publicErrorMessage } from "@/lib/guardrails";
 import { getHardeningConfig } from "@/lib/limits";
+import { getResolvedUserAiCredential } from "@/lib/user-store";
 import type { DocumentKind } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,6 +15,7 @@ type RegenerateRequest = {
   documentId?: string;
   documentTitle?: string;
   pageNumber?: number;
+  buildContext?: string;
   pageText?: string;
   imageDataUrl?: string;
   documentKind?: DocumentKind;
@@ -20,6 +23,11 @@ type RegenerateRequest = {
 
 export async function POST(request: Request) {
   const hardening = getHardeningConfig();
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "请先登录后再重新生成。" }, { status: 401 });
+  }
+
   const rateLimit = checkRateLimit(
     request,
     "regenerate",
@@ -33,6 +41,11 @@ export async function POST(request: Request) {
 
   if (isBetaAccessRequired() && !hasBetaAccess(request)) {
     return NextResponse.json({ error: "测试访问码不正确，请确认后再重试。" }, { status: 401 });
+  }
+
+  const aiCredential = await getResolvedUserAiCredential(user.id);
+  if (!aiCredential) {
+    return NextResponse.json({ error: "请先在账号设置里配置自己的模型 API。" }, { status: 400 });
   }
 
   const timeout = createTimeoutController(
@@ -52,12 +65,18 @@ export async function POST(request: Request) {
     }
 
     const storedDocument = body.documentId ? await getStoredDocument(body.documentId) : null;
+    if (storedDocument && !canAccessStoredDocument(storedDocument, user.id)) {
+      return NextResponse.json({ error: "文档不存在或无权访问。" }, { status: 404 });
+    }
+
     const explanation = await generateSlideExplanation({
       documentTitle: body.documentTitle || "KnowExper",
       documentKind: body.documentKind || storedDocument?.documentKind,
       pageNumber: body.pageNumber,
+      buildContext: body.buildContext,
       pageText: body.pageText || "",
       imageDataUrl: body.imageDataUrl,
+      aiCredential,
       signal: timeout.signal,
       timeoutMs: hardening.aiRequestTimeoutMs,
       textCharLimit: hardening.slideTextCharLimit,

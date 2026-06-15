@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "canvas": "^3.2.3",
+    "katex": "^0.17.0",
     "lucide-react": "latest",
     "next": "latest",
     "openai": "latest",

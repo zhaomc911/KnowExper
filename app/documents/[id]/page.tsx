@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { SlidesDocumentView } from "@/components/SlidesDocumentView";
-import { documentUrl, getStoredDocument } from "@/lib/documents";
+import { DocumentPageClient } from "./DocumentPageClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,28 +12,13 @@ type PageProps = {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const document = await getStoredDocument(id);
 
   return {
-    title: document ? `${document.title} | KnowExper` : "Document not found",
+    title: `${id.slice(0, 8)} | KnowExper`,
   };
 }
 
 export default async function StoredDocumentPage({ params }: PageProps) {
   const { id } = await params;
-  const document = await getStoredDocument(id);
-
-  if (!document) {
-    notFound();
-  }
-
-  return (
-    <SlidesDocumentView
-      title={document.title}
-      slides={document.slides}
-      documentKind={document.documentKind}
-      documentId={document.id}
-      documentUrl={documentUrl(document.id)}
-    />
-  );
+  return <DocumentPageClient documentId={id} />;
 }

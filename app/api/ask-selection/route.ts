@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { hasBetaAccess, isBetaAccessRequired } from "@/lib/access";
+import { getCurrentUser } from "@/lib/auth";
 import { generateSelectionAnswer } from "@/lib/ai";
 import { checkRateLimit, createTimeoutController, publicErrorMessage } from "@/lib/guardrails";
 import { getHardeningConfig } from "@/lib/limits";
+import { getResolvedUserAiCredential } from "@/lib/user-store";
 import type { DocumentKind } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -28,6 +30,11 @@ function cleanText(value: unknown) {
 
 export async function POST(request: Request) {
   const hardening = getHardeningConfig();
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "请先登录后再提问。" }, { status: 401 });
+  }
+
   const rateLimit = checkRateLimit(
     request,
     "ask-selection",
@@ -41,6 +48,11 @@ export async function POST(request: Request) {
 
   if (isBetaAccessRequired() && !hasBetaAccess(request)) {
     return NextResponse.json({ error: "测试访问码不正确，请确认后再重试。" }, { status: 401 });
+  }
+
+  const aiCredential = await getResolvedUserAiCredential(user.id);
+  if (!aiCredential) {
+    return NextResponse.json({ error: "请先在账号设置里配置自己的模型 API。" }, { status: 400 });
   }
 
   const timeout = createTimeoutController(
@@ -78,6 +90,7 @@ export async function POST(request: Request) {
       selectedText,
       question,
       pageContext: pageContext.slice(0, MAX_CONTEXT_CHARS),
+      aiCredential,
       signal: timeout.signal,
       timeoutMs: hardening.aiRequestTimeoutMs,
       textCharLimit: hardening.slideTextCharLimit,

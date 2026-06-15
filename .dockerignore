@@ -15,7 +15,6 @@ yarn-debug.log*
 .DS_Store
 *.tsbuildinfo
 
-# Local samples and generated artifacts should not enter deployment images.
-c1.pdf
+# Generated artifacts should not enter deployment images.
 tmp/
 output/

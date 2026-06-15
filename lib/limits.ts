@@ -1,5 +1,7 @@
-export const DEFAULT_MAX_UPLOAD_MB = 25;
-export const DEFAULT_MAX_PAGES = 80;
+export const DEFAULT_MAX_UPLOAD_MB = 100;
+export const DEFAULT_MAX_PAGES = 100;
+export const DEFAULT_MAX_PAPER_PAGES = 30;
+export const DEFAULT_MAX_SOURCE_PAGES = 500;
 export const DEFAULT_RENDER_SCALE = 1.8;
 export const DEFAULT_RATE_LIMIT_WINDOW_MIN = 15;
 export const DEFAULT_PROCESS_RATE_LIMIT = 6;
@@ -7,7 +9,7 @@ export const DEFAULT_REGENERATE_RATE_LIMIT = 30;
 export const DEFAULT_ASK_RATE_LIMIT = 60;
 export const DEFAULT_MAX_CONCURRENT_JOBS = 2;
 export const DEFAULT_AI_REQUEST_TIMEOUT_SECONDS = 90;
-export const DEFAULT_TOTAL_JOB_TIMEOUT_SECONDS = 240;
+export const DEFAULT_TOTAL_JOB_TIMEOUT_SECONDS = 3600;
 export const DEFAULT_SLIDE_TEXT_CHAR_LIMIT = 5000;
 
 function numberFromEnv(name: string, fallback: number, min: number, max: number) {
@@ -21,14 +23,18 @@ function numberFromEnv(name: string, fallback: number, min: number, max: number)
 }
 
 export function getProcessingLimits() {
-  const maxUploadMb = numberFromEnv("MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB, 1, 100);
-  const maxPages = numberFromEnv("MAX_PAGES", DEFAULT_MAX_PAGES, 1, 160);
+  const maxUploadMb = numberFromEnv("MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB, 1, 500);
+  const maxPages = numberFromEnv("MAX_PAGES", DEFAULT_MAX_PAGES, 1, 100);
+  const maxPaperPages = numberFromEnv("MAX_PAPER_PAGES", Math.min(DEFAULT_MAX_PAPER_PAGES, maxPages), 1, maxPages);
+  const maxSourcePages = numberFromEnv("MAX_SOURCE_PAGES", DEFAULT_MAX_SOURCE_PAGES, maxPages, 1500);
   const renderScale = numberFromEnv("PDF_RENDER_SCALE", DEFAULT_RENDER_SCALE, 1, 3);
 
   return {
     maxUploadMb,
     maxUploadBytes: maxUploadMb * 1024 * 1024,
     maxPages,
+    maxPaperPages,
+    maxSourcePages,
     renderScale,
   };
 }
@@ -49,7 +55,7 @@ export function getHardeningConfig() {
     "TOTAL_JOB_TIMEOUT_SECONDS",
     DEFAULT_TOTAL_JOB_TIMEOUT_SECONDS,
     30,
-    900,
+    3600,
   );
   const slideTextCharLimit = numberFromEnv("SLIDE_TEXT_CHAR_LIMIT", DEFAULT_SLIDE_TEXT_CHAR_LIMIT, 500, 20000);
 

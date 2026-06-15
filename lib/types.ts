@@ -1,4 +1,19 @@
 export type DocumentKind = "course_slides" | "academic_paper" | "knowledge_document";
+export type SourceType = "pdf" | "pptx";
+export type StoredDocumentStatus = "processing" | "partial" | "complete";
+
+export type PageRange = {
+  startPage: number;
+  endPage: number;
+  totalPageCount: number;
+};
+
+export type BuildFrameRange = {
+  startPage: number;
+  endPage: number;
+  frameCount: number;
+  kind?: "build" | "topic";
+};
 
 export type SlideExplanation = {
   title: string;
@@ -9,8 +24,21 @@ export type SlideExplanation = {
   remember: string;
 };
 
+export type SlideSourcePage = {
+  pageNumber: number;
+  width: number;
+  height: number;
+  imageDataUrl: string;
+  title?: string;
+};
+
 export type SlideResult = {
   pageNumber: number;
+  unitTitle?: string;
+  sourcePageNumbers?: number[];
+  sourcePages?: SlideSourcePage[];
+  buildFrameRange?: BuildFrameRange;
+  buildContext?: string;
   width: number;
   height: number;
   text: string;
@@ -32,7 +60,15 @@ export type ProcessEvent =
       fileName: string;
       pageCount: number;
       maxPages: number;
+      sourcePageCount?: number;
+      collapsedPageCount?: number;
+      completedPageCount?: number;
+      documentId?: string;
+      documentUrl?: string;
+      status?: StoredDocumentStatus;
       documentKind?: DocumentKind;
+      sourceType?: SourceType;
+      pageRange?: PageRange;
     }
   | {
       type: "page";
@@ -45,7 +81,13 @@ export type ProcessEvent =
       documentId?: string;
       documentUrl?: string;
       cached?: boolean;
+      sourcePageCount?: number;
+      collapsedPageCount?: number;
+      completedPageCount?: number;
+      status?: StoredDocumentStatus;
       documentKind?: DocumentKind;
+      sourceType?: SourceType;
+      pageRange?: PageRange;
     }
   | {
       type: "error";
