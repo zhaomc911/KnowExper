@@ -13,8 +13,14 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
       - key: DOCUMENT_STORE_DIR
         value: /app/data/documents
+      - key: LIBRARY_OVERRIDES_PATH
+        value: /app/data/library-overrides.json
+      - key: LIBRARY_ORGANIZATION_PATH
+        value: /app/data/library-organization.json
       - key: USER_STORE_PATH
         value: /app/data/users.json
       - key: SESSION_SECRET
@@ -30,11 +36,15 @@ services:
       - key: BETA_ACCESS_CODE
         sync: false
       - key: MAX_UPLOAD_MB
-        value: 15
+        value: 100
       - key: MAX_PAGES
+        value: 100
+      - key: MAX_PAPER_PAGES
         value: 30
       - key: MAX_SOURCE_PAGES
-        value: 120
+        value: 500
+      - key: MAX_COURSE_SOURCE_PAGES
+        value: 1000
       - key: PDF_RENDER_SCALE
         value: 1.8
       - key: RATE_LIMIT_WINDOW_MIN
@@ -50,6 +60,6 @@ services:
       - key: AI_REQUEST_TIMEOUT_SECONDS
         value: 90
       - key: TOTAL_JOB_TIMEOUT_SECONDS
-        value: 180
+        value: 3600
       - key: SLIDE_TEXT_CHAR_LIMIT
         value: 5000

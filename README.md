@@ -35,6 +35,15 @@ npm run dev
 
 本地处理 PPTX 需要安装 LibreOffice，并确保 `soffice` 或 `libreoffice` 在 PATH 中。Docker / Render 部署会通过 `Dockerfile` 安装 LibreOffice。
 
+本地模拟生产环境时先构建，再运行 standalone server：
+
+```bash
+npm run build
+npm run start
+```
+
+项目使用 Next.js `output: "standalone"`，`npm run start` 会运行 `.next/standalone/server.js`，不再使用会产生 warning 的 `next start`。`npm run build` 之后会自动把 `public/` 和 `.next/static/` 复制到 standalone 输出目录。
+
 ## 仓库状态
 
 当前仓库只保留应用代码、配置模板和部署文件，不再内置早期测试用 PDF、静态 demo 页面、生成脚本或已生成文档数据。
@@ -59,6 +68,7 @@ MAX_UPLOAD_MB=100
 MAX_PAGES=100
 MAX_PAPER_PAGES=30
 MAX_SOURCE_PAGES=500
+MAX_COURSE_SOURCE_PAGES=1000
 PDF_RENDER_SCALE=1.8
 
 RATE_LIMIT_WINDOW_MIN=15
@@ -70,6 +80,8 @@ AI_REQUEST_TIMEOUT_SECONDS=90
 TOTAL_JOB_TIMEOUT_SECONDS=3600
 SLIDE_TEXT_CHAR_LIMIT=5000
 DOCUMENT_STORE_DIR=./data/documents
+LIBRARY_OVERRIDES_PATH=./data/library-overrides.json
+LIBRARY_ORGANIZATION_PATH=./data/library-organization.json
 USER_STORE_PATH=./data/users.json
 ```
 
@@ -82,13 +94,13 @@ USER_STORE_PATH=./data/users.json
 - `HIGHLAND_*` / `OPENAI_*` 仍可作为本地迁移 fallback，但正式公开使用建议让每个用户配置自己的 API。
 - `BETA_ACCESS_CODE` 是可选的小范围测试访问码。留空时不启用；设置后，登录用户上传、继续生成和重新生成时仍需要前端填写同一个访问码。
 - `PROCESS_RATE_LIMIT` 是每个 IP 在一个时间窗口内可上传处理的文档次数。
-- `MAX_SOURCE_PAGES` 是单次允许扫描的原始 PDF/PPTX 页面数；课程 slides 的动画页会先合并，再受 `MAX_PAGES` 讲解单元限制。学术论文模式默认受 `MAX_PAPER_PAGES` 精读单元限制。
+- `MAX_SOURCE_PAGES` 是论文/通用文档的原始 PDF/PPTX 页面扫描上限基线；课程 slides 可用 `MAX_COURSE_SOURCE_PAGES` 单独放宽，默认会取 `MAX_SOURCE_PAGES` 和 `MAX_PAGES * 10` 的较大值，再通过动画页合并控制到 `MAX_PAGES` 个讲解单元内。学术论文模式仍默认受 `MAX_SOURCE_PAGES` 与 `MAX_PAPER_PAGES` 限制。
 - `REGENERATE_RATE_LIMIT` 是每个 IP 在一个时间窗口内可重新生成单页详解的次数。
 - `ASK_RATE_LIMIT` 是每个 IP 在一个时间窗口内可对选中文字继续提问的次数。
 - `MAX_CONCURRENT_JOBS` 是单实例同时处理的文档任务数。公开 MVP 建议从 `2` 或 `3` 开始。
 - `AI_REQUEST_TIMEOUT_SECONDS` 控制单页模型调用超时；`TOTAL_JOB_TIMEOUT_SECONDS` 控制整份文档任务超时。本地长课件建议设为 `3600`，避免几十个讲解单元被 15 分钟上限截断。
 - `SLIDE_TEXT_CHAR_LIMIT` 会截断超长的 PDF 文字抽取结果，避免提示词失控；图片仍会完整传给视觉模型。
-- `DOCUMENT_STORE_DIR` 是本地文件系统持久化目录。适合本地和单机小规模测试；正式公开部署建议替换成数据库 + 对象存储。
+- `DOCUMENT_STORE_DIR` 是生成文档持久化目录；`LIBRARY_OVERRIDES_PATH` 和 `LIBRARY_ORGANIZATION_PATH` 分别保存文档标题覆盖/删除标记和文件夹排序结构。适合本地和单机小规模测试；正式公开部署建议替换成数据库 + 对象存储。
 
 ## 公开 MVP 加固
 
@@ -107,7 +119,7 @@ USER_STORE_PATH=./data/users.json
 - 可选 `BETA_ACCESS_CODE`，适合邀请制小范围测试；正式开放时可以留空，只依赖账号登录和每用户限流。
 - 已生成文档保存到服务端存储，并提供 `/documents/{id}` 复访链接。
 - 同一份文件用“用户 ID + SHA-256 文件指纹 + 页码范围”去重；默认只在同一用户账号下复用缓存。
-- 长课件可以上传；单次最多扫描 `MAX_SOURCE_PAGES` 个原始页面，并通过动画页合并把最终讲解控制在 `MAX_PAGES` 个讲解单元内。学术论文会按论文结构分块，默认控制在 `MAX_PAPER_PAGES` 个精读单元内。
+- 长课件可以上传；课程 slides 会先扫描更多原始页面并合并重复/动画页，再把最终讲解控制在 `MAX_PAGES` 个讲解单元内。学术论文会按论文结构分块，默认控制在 `MAX_PAPER_PAGES` 个精读单元内。
 - Docker 构建会通过 `.dockerignore` 排除 `.env.local`、运行时数据、临时输出目录和构建缓存。
 - 页面和响应头默认设置 `noindex`，适合小范围公开测试阶段，降低被搜索引擎收录的概率。
 
@@ -158,15 +170,16 @@ data/users.json
 SESSION_SECRET=generated-session-secret
 CREDENTIAL_ENCRYPTION_KEY=generated-credential-key
 BETA_ACCESS_CODE=
-MAX_UPLOAD_MB=15
-MAX_PAGES=30
+MAX_UPLOAD_MB=100
+MAX_PAGES=100
 MAX_PAPER_PAGES=30
-MAX_SOURCE_PAGES=120
+MAX_SOURCE_PAGES=500
+MAX_COURSE_SOURCE_PAGES=1000
 PROCESS_RATE_LIMIT=3
 REGENERATE_RATE_LIMIT=10
 ASK_RATE_LIMIT=30
 MAX_CONCURRENT_JOBS=1
-TOTAL_JOB_TIMEOUT_SECONDS=180
+TOTAL_JOB_TIMEOUT_SECONDS=3600
 ```
 
 测试期间重点观察：

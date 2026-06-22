@@ -2,6 +2,7 @@ export const DEFAULT_MAX_UPLOAD_MB = 100;
 export const DEFAULT_MAX_PAGES = 100;
 export const DEFAULT_MAX_PAPER_PAGES = 30;
 export const DEFAULT_MAX_SOURCE_PAGES = 500;
+export const DEFAULT_COURSE_SOURCE_PAGES_PER_UNIT = 10;
 export const DEFAULT_RENDER_SCALE = 1.8;
 export const DEFAULT_RATE_LIMIT_WINDOW_MIN = 15;
 export const DEFAULT_PROCESS_RATE_LIMIT = 6;
@@ -27,6 +28,16 @@ export function getProcessingLimits() {
   const maxPages = numberFromEnv("MAX_PAGES", DEFAULT_MAX_PAGES, 1, 100);
   const maxPaperPages = numberFromEnv("MAX_PAPER_PAGES", Math.min(DEFAULT_MAX_PAPER_PAGES, maxPages), 1, maxPages);
   const maxSourcePages = numberFromEnv("MAX_SOURCE_PAGES", DEFAULT_MAX_SOURCE_PAGES, maxPages, 1500);
+  const defaultCourseSourcePages = Math.min(
+    1500,
+    Math.max(maxSourcePages, maxPages * DEFAULT_COURSE_SOURCE_PAGES_PER_UNIT),
+  );
+  const maxCourseSourcePages = numberFromEnv(
+    "MAX_COURSE_SOURCE_PAGES",
+    defaultCourseSourcePages,
+    maxPages,
+    1500,
+  );
   const renderScale = numberFromEnv("PDF_RENDER_SCALE", DEFAULT_RENDER_SCALE, 1, 3);
 
   return {
@@ -35,6 +46,7 @@ export function getProcessingLimits() {
     maxPages,
     maxPaperPages,
     maxSourcePages,
+    maxCourseSourcePages,
     renderScale,
   };
 }

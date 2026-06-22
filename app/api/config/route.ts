@@ -15,6 +15,7 @@ export async function GET() {
       maxPages: limits.maxPages,
       maxPaperPages: limits.maxPaperPages,
       maxSourcePages: limits.maxSourcePages,
+      maxCourseSourcePages: limits.maxCourseSourcePages,
       acceptedTypes: [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",

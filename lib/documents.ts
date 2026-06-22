@@ -55,11 +55,31 @@ export type StoredDocumentSummary = Pick<
 };
 
 export type LibraryTitleOverrides = Record<string, { title?: string; updatedAt: string; deleted?: boolean }>;
+export type LibraryKind = Extract<DocumentKind, "course_slides" | "academic_paper">;
+export type LibraryFolder = {
+  id: string;
+  kind: LibraryKind;
+  name: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type LibraryDocumentPlacement = {
+  folderId?: string;
+  order: number;
+  updatedAt: string;
+};
+export type LibraryOrganization = {
+  folders: LibraryFolder[];
+  placements: Record<string, LibraryDocumentPlacement>;
+};
 
 const DEFAULT_DATA_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "data");
 const DOCUMENT_STORE_DIR = process.env.DOCUMENT_STORE_DIR || path.join(/*turbopackIgnore: true*/ DEFAULT_DATA_DIR, "documents");
 const LIBRARY_OVERRIDES_PATH =
   process.env.LIBRARY_OVERRIDES_PATH || path.join(/*turbopackIgnore: true*/ DEFAULT_DATA_DIR, "library-overrides.json");
+const LIBRARY_ORGANIZATION_PATH =
+  process.env.LIBRARY_ORGANIZATION_PATH || path.join(/*turbopackIgnore: true*/ DEFAULT_DATA_DIR, "library-organization.json");
 
 function safeDocumentId(id: string) {
   return /^[a-f0-9]{64}$/.test(id);
@@ -75,6 +95,27 @@ function documentPath(id: string) {
 
 function safeLibraryDocumentId(id: string) {
   return safeDocumentId(id) || /^[a-z0-9][a-z0-9-]{0,100}$/.test(id);
+}
+
+function safeLibraryFolderId(id: string) {
+  return /^[a-z0-9][a-z0-9-]{0,80}$/.test(id);
+}
+
+function safeLibraryKind(value: unknown): value is LibraryKind {
+  return value === "course_slides" || value === "academic_paper";
+}
+
+export function normalizeLibraryFolderName(value: unknown) {
+  const name = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  if (!name) {
+    throw new Error("文件夹名称不能为空。");
+  }
+
+  if (name.length > 80) {
+    throw new Error("文件夹名称不能超过 80 个字符。");
+  }
+
+  return name;
 }
 
 function generatedSlideCount(slides: SlideResult[]) {
@@ -256,6 +297,125 @@ async function readRawLibraryTitleOverrides(): Promise<LibraryTitleOverrides> {
 
     throw error;
   }
+}
+
+type LibraryOrganizationStore = Record<string, LibraryOrganization>;
+
+function libraryOwnerKey(ownerId?: string) {
+  return ownerId || "__public__";
+}
+
+function normalizeLibraryOrder(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeLibraryOrganization(
+  value: unknown,
+  validDocumentIds?: Set<string>,
+): LibraryOrganization {
+  const parsed = value && typeof value === "object" ? (value as Partial<LibraryOrganization>) : {};
+  const now = new Date().toISOString();
+  const folders: LibraryFolder[] = [];
+  const folderIds = new Set<string>();
+
+  for (const [index, rawFolder] of Array.isArray(parsed.folders) ? parsed.folders.entries() : []) {
+    if (!rawFolder || typeof rawFolder !== "object") continue;
+    const folder = rawFolder as Partial<LibraryFolder>;
+    if (typeof folder.id !== "string" || !safeLibraryFolderId(folder.id)) continue;
+    if (!safeLibraryKind(folder.kind)) continue;
+    if (folderIds.has(folder.id)) continue;
+
+    let name: string;
+    try {
+      name = normalizeLibraryFolderName(folder.name);
+    } catch {
+      continue;
+    }
+
+    const createdAt = typeof folder.createdAt === "string" ? folder.createdAt : now;
+    const updatedAt = typeof folder.updatedAt === "string" ? folder.updatedAt : createdAt;
+    folders.push({
+      id: folder.id,
+      kind: folder.kind,
+      name,
+      order: normalizeLibraryOrder(folder.order, index),
+      createdAt,
+      updatedAt,
+    });
+    folderIds.add(folder.id);
+  }
+
+  const placements: Record<string, LibraryDocumentPlacement> = {};
+  const rawPlacements =
+    parsed.placements && typeof parsed.placements === "object" ? parsed.placements : {};
+  for (const [documentId, rawPlacement] of Object.entries(rawPlacements)) {
+    if (!safeDocumentId(documentId)) continue;
+    if (validDocumentIds && !validDocumentIds.has(documentId)) continue;
+    if (!rawPlacement || typeof rawPlacement !== "object") continue;
+
+    const placement = rawPlacement as Partial<LibraryDocumentPlacement>;
+    const folderId =
+      typeof placement.folderId === "string" && folderIds.has(placement.folderId)
+        ? placement.folderId
+        : undefined;
+    placements[documentId] = {
+      folderId,
+      order: normalizeLibraryOrder(placement.order, Object.keys(placements).length),
+      updatedAt: typeof placement.updatedAt === "string" ? placement.updatedAt : now,
+    };
+  }
+
+  folders.sort((a, b) => a.kind.localeCompare(b.kind) || a.order - b.order || a.name.localeCompare(b.name));
+
+  return { folders, placements };
+}
+
+async function readRawLibraryOrganizationStore(): Promise<LibraryOrganizationStore> {
+  try {
+    const raw = await readFile(LIBRARY_ORGANIZATION_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return {};
+
+    const store: LibraryOrganizationStore = {};
+    for (const [ownerKey, organization] of Object.entries(parsed)) {
+      store[ownerKey] = normalizeLibraryOrganization(organization);
+    }
+
+    return store;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return {};
+    }
+
+    throw error;
+  }
+}
+
+export async function getLibraryOrganization(ownerId?: string, documentIds?: string[]): Promise<LibraryOrganization> {
+  const store = await readRawLibraryOrganizationStore();
+  const validDocumentIds = documentIds ? new Set(documentIds.filter(safeDocumentId)) : undefined;
+  return normalizeLibraryOrganization(store[libraryOwnerKey(ownerId)], validDocumentIds);
+}
+
+export async function saveLibraryOrganization({
+  ownerId,
+  organization,
+  documentIds,
+}: {
+  ownerId?: string;
+  organization: LibraryOrganization;
+  documentIds?: string[];
+}) {
+  const store = await readRawLibraryOrganizationStore();
+  const validDocumentIds = documentIds ? new Set(documentIds.filter(safeDocumentId)) : undefined;
+  const normalized = normalizeLibraryOrganization(organization, validDocumentIds);
+  store[libraryOwnerKey(ownerId)] = normalized;
+
+  await mkdir(path.dirname(LIBRARY_ORGANIZATION_PATH), { recursive: true });
+  await writeFile(LIBRARY_ORGANIZATION_PATH, JSON.stringify(store, null, 2));
+
+  return normalized;
 }
 
 export async function setLibraryTitleOverride(id: string, title: string, ownerId?: string) {

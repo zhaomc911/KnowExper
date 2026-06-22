@@ -4,7 +4,11 @@ import {
   AlertCircle,
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronUp,
   FileText,
+  Folder,
+  FolderPlus,
   KeyRound,
   Loader2,
   LogIn,
@@ -30,6 +34,7 @@ type ConfigResponse = {
     maxPages: number;
     maxPaperPages: number;
     maxSourcePages: number;
+    maxCourseSourcePages: number;
     acceptedTypes: string[];
   };
   ai: {
@@ -181,6 +186,29 @@ type LibraryDocument = {
 };
 
 type TitleOverrides = Record<string, { title?: string; updatedAt: string; deleted?: boolean }>;
+type LibraryKind = Extract<DocumentKind, "course_slides" | "academic_paper">;
+type LibraryFolder = {
+  id: string;
+  kind: LibraryKind;
+  name: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+};
+type LibraryDocumentPlacement = {
+  folderId?: string;
+  order: number;
+  updatedAt: string;
+};
+type LibraryOrganization = {
+  folders: LibraryFolder[];
+  placements: Record<string, LibraryDocumentPlacement>;
+};
+
+const emptyLibraryOrganization: LibraryOrganization = {
+  folders: [],
+  placements: {},
+};
 
 function applyTitleOverrides(documents: LibraryDocument[], titleOverrides: TitleOverrides) {
   return documents.map((document) => {
@@ -210,6 +238,58 @@ function mergeLibraryDocuments(documents: LibraryDocument[], titleOverrides: Tit
   });
 
   return applyTitleOverrides(merged, titleOverrides);
+}
+
+function normalizeLibraryOrganization(organization?: Partial<LibraryOrganization> | null): LibraryOrganization {
+  return {
+    folders: Array.isArray(organization?.folders) ? organization.folders : [],
+    placements:
+      organization?.placements && typeof organization.placements === "object"
+        ? organization.placements
+        : {},
+  };
+}
+
+function libraryKindForDocument(document: LibraryDocument): LibraryKind {
+  return document.documentKind === "academic_paper" ? "academic_paper" : "course_slides";
+}
+
+function documentPlacement(document: LibraryDocument, organization: LibraryOrganization) {
+  return organization.placements[document.id];
+}
+
+function documentOrder(document: LibraryDocument, organization: LibraryOrganization) {
+  const placement = documentPlacement(document, organization);
+  if (typeof placement?.order === "number") return placement.order;
+
+  return -Date.parse(document.updatedAt || document.createdAt || "0");
+}
+
+function sortedLibraryDocuments(
+  documents: LibraryDocument[],
+  organization: LibraryOrganization,
+  kind: LibraryKind,
+  folderId?: string,
+) {
+  return documents
+    .filter((document) => libraryKindForDocument(document) === kind)
+    .filter((document) => (documentPlacement(document, organization)?.folderId || "") === (folderId || ""))
+    .sort((a, b) => documentOrder(a, organization) - documentOrder(b, organization) || a.title.localeCompare(b.title));
+}
+
+function sortedLibraryFolders(organization: LibraryOrganization, kind: LibraryKind) {
+  return organization.folders
+    .filter((folder) => folder.kind === kind)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
+
+function createFolderId() {
+  const randomId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return `folder-${randomId}`.toLowerCase();
 }
 
 function providerPreset(provider: AiProviderId) {
@@ -487,6 +567,7 @@ function UploadWorkbench({
   accessCode,
   onAccessCodeChange,
   libraryDocuments,
+  libraryOrganization,
   startPage,
   endPage,
   onStartPageChange,
@@ -499,6 +580,10 @@ function UploadWorkbench({
   onLogout,
   onRenameDocument,
   onDeleteDocument,
+  onCreateFolder,
+  onMoveDocument,
+  onReorderDocument,
+  onReorderFolder,
 }: {
   config: ConfigResponse | null;
   authUser: AuthUser;
@@ -514,6 +599,7 @@ function UploadWorkbench({
   accessCode: string;
   onAccessCodeChange: (value: string) => void;
   libraryDocuments: LibraryDocument[];
+  libraryOrganization: LibraryOrganization;
   startPage: string;
   endPage: string;
   onStartPageChange: (value: string) => void;
@@ -526,6 +612,10 @@ function UploadWorkbench({
   onLogout: () => Promise<void>;
   onRenameDocument: (documentId: string, title: string) => Promise<void>;
   onDeleteDocument: (documentId: string) => Promise<void>;
+  onCreateFolder: (kind: LibraryKind, name: string) => Promise<void>;
+  onMoveDocument: (documentId: string, folderId?: string) => Promise<void>;
+  onReorderDocument: (documentId: string, folderId: string | undefined, direction: -1 | 1) => Promise<void>;
+  onReorderFolder: (kind: LibraryKind, folderId: string, direction: -1 | 1) => Promise<void>;
 }) {
   const [dragging, setDragging] = useState(false);
   const [editingDocumentId, setEditingDocumentId] = useState("");
@@ -533,27 +623,29 @@ function UploadWorkbench({
   const [renamingDocumentId, setRenamingDocumentId] = useState("");
   const [deletingDocumentId, setDeletingDocumentId] = useState("");
   const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState("");
+  const [folderDrafts, setFolderDrafts] = useState<Record<LibraryKind, string>>({
+    course_slides: "",
+    academic_paper: "",
+  });
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set());
   const [renameError, setRenameError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [organizeError, setOrganizeError] = useState("");
   const visibleUnitLimit = config
     ? uploadKind === "academic_paper"
       ? config.limits.maxPaperPages
       : config.limits.maxPages
     : undefined;
-  const courseLibraryDocuments = libraryDocuments.filter((document) => document.documentKind !== "academic_paper");
-  const paperLibraryDocuments = libraryDocuments.filter((document) => document.documentKind === "academic_paper");
   const librarySections = [
     {
-      id: "course_slides",
+      id: "course_slides" as const,
       title: "课程 slides",
       description: "课件、讲义和普通学习资料",
-      documents: courseLibraryDocuments,
     },
     {
-      id: "academic_paper",
+      id: "academic_paper" as const,
       title: "学术论文",
       description: "论文、综述和研究文章",
-      documents: paperLibraryDocuments,
     },
   ];
 
@@ -626,6 +718,58 @@ function UploadWorkbench({
     }
   }
 
+  function toggleFolder(folderId: string) {
+    setExpandedFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }
+
+  function dragDocumentId(event: DragEvent<HTMLElement>) {
+    return event.dataTransfer.getData("application/x-knowexper-document");
+  }
+
+  function startDocumentDrag(event: DragEvent<HTMLElement>, document: LibraryDocument) {
+    if (editingDocumentId || pendingDeleteDocumentId) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-knowexper-document", document.id);
+  }
+
+  async function runOrganizationAction(action: () => Promise<void>) {
+    setOrganizeError("");
+    try {
+      await action();
+    } catch (error) {
+      setOrganizeError(error instanceof Error ? error.message : "文档库更新失败。");
+    }
+  }
+
+  async function submitFolder(kind: LibraryKind) {
+    const name = folderDrafts[kind].trim().replace(/\s+/g, " ");
+    if (!name) {
+      setOrganizeError("文件夹名称不能为空。");
+      return;
+    }
+
+    await runOrganizationAction(async () => {
+      await onCreateFolder(kind, name);
+      setFolderDrafts((current) => ({ ...current, [kind]: "" }));
+    });
+  }
+
+  function dropDocumentIntoFolder(event: DragEvent<HTMLElement>, folderId?: string) {
+    event.preventDefault();
+    const documentId = dragDocumentId(event);
+    if (!documentId) return;
+
+    void runOrganizationAction(() => onMoveDocument(documentId, folderId));
+  }
+
   function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>, document: LibraryDocument) {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -638,7 +782,17 @@ function UploadWorkbench({
     }
   }
 
-  function renderDocumentRow(document: LibraryDocument) {
+  function renderDocumentRow({
+    document,
+    folderId,
+    canMoveUp,
+    canMoveDown,
+  }: {
+    document: LibraryDocument;
+    folderId?: string;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+  }) {
     const isEditing = editingDocumentId === document.id;
     const isRenaming = renamingDocumentId === document.id;
     const isDeleting = deletingDocumentId === document.id;
@@ -649,7 +803,9 @@ function UploadWorkbench({
         className={`recent-document-row ${isEditing ? "is-editing" : ""} ${
           isConfirmingDelete ? "is-confirming-delete" : ""
         }`}
+        draggable={!isEditing && !isConfirmingDelete}
         key={document.id}
+        onDragStart={(event) => startDocumentDrag(event, document)}
       >
         {isEditing ? (
           <form
@@ -728,6 +884,32 @@ function UploadWorkbench({
                   <button
                     className="recent-document-icon-button"
                     type="button"
+                    aria-label={`上移 ${document.title}`}
+                    disabled={isDeleting || !canMoveUp}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void runOrganizationAction(() => onReorderDocument(document.id, folderId, -1));
+                    }}
+                  >
+                    <ChevronUp aria-hidden="true" />
+                  </button>
+                  <button
+                    className="recent-document-icon-button"
+                    type="button"
+                    aria-label={`下移 ${document.title}`}
+                    disabled={isDeleting || !canMoveDown}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void runOrganizationAction(() => onReorderDocument(document.id, folderId, 1));
+                    }}
+                  >
+                    <ChevronDown aria-hidden="true" />
+                  </button>
+                  <button
+                    className="recent-document-icon-button"
+                    type="button"
                     aria-label={`重命名 ${document.title}`}
                     disabled={isDeleting}
                     onClick={(event) => {
@@ -757,6 +939,17 @@ function UploadWorkbench({
           </>
         )}
       </div>
+    );
+  }
+
+  function renderDocumentList(documents: LibraryDocument[], folderId?: string) {
+    return documents.map((document, index) =>
+      renderDocumentRow({
+        document,
+        folderId,
+        canMoveUp: index > 0,
+        canMoveDown: index < documents.length - 1,
+      }),
     );
   }
 
@@ -843,7 +1036,7 @@ function UploadWorkbench({
                 ? `适合整篇论文或一个章节；系统会按论文结构自动分块，最多生成 ${
                     visibleUnitLimit ?? "规定"
                   } 个精读单元。`
-                : `可扫描 ${config ? config.limits.maxSourcePages : "数百"} 个原始页面；动画/高亮页会智能合并，最终不超过 ${
+                : `可扫描 ${config ? config.limits.maxCourseSourcePages : "数百"} 个原始页面；动画/高亮页会智能合并，最终不超过 ${
                     visibleUnitLimit ?? "规定"
                   } 个讲解单元。`}
             </span>
@@ -918,22 +1111,133 @@ function UploadWorkbench({
           <div className="recent-documents">
             <div className="recent-documents-title">本地文档库</div>
             <div className="recent-documents-grid">
-              {librarySections.map((section) => (
-                <section className="recent-documents-section" key={section.id} aria-label={`${section.title} 文档`}>
-                  <div className="recent-documents-section-head">
-                    <strong>{section.title}</strong>
-                    <span>{section.description}</span>
-                  </div>
-                  {section.documents.length ? (
-                    <div className="recent-documents-list">{section.documents.map(renderDocumentRow)}</div>
-                  ) : (
-                    <div className="recent-documents-empty">还没有保存的{section.title}。</div>
-                  )}
-                </section>
-              ))}
+              {librarySections.map((section) => {
+                const folders = sortedLibraryFolders(libraryOrganization, section.id);
+                const rootDocuments = sortedLibraryDocuments(
+                  libraryDocuments,
+                  libraryOrganization,
+                  section.id,
+                );
+                const documentCount = libraryDocuments.filter((document) => libraryKindForDocument(document) === section.id).length;
+
+                return (
+                  <section className="recent-documents-section" key={section.id} aria-label={`${section.title} 文档`}>
+                    <div className="recent-documents-section-head">
+                      <div>
+                        <strong>{section.title}</strong>
+                        <span>{section.description}</span>
+                      </div>
+                      <form
+                        className="library-folder-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void submitFolder(section.id);
+                        }}
+                      >
+                        <input
+                          value={folderDrafts[section.id]}
+                          placeholder="新文件夹"
+                          maxLength={80}
+                          aria-label={`在${section.title}中新建文件夹`}
+                          onChange={(event) => {
+                            const value = event.currentTarget.value;
+                            setFolderDrafts((current) => ({
+                              ...current,
+                              [section.id]: value,
+                            }));
+                          }}
+                        />
+                        <button className="recent-document-icon-button" type="submit" aria-label="新建文件夹">
+                          <FolderPlus aria-hidden="true" />
+                        </button>
+                      </form>
+                    </div>
+
+                    {documentCount ? (
+                      <div className="recent-documents-list">
+                        {folders.map((folder, folderIndex) => {
+                          const folderDocuments = sortedLibraryDocuments(
+                            libraryDocuments,
+                            libraryOrganization,
+                            section.id,
+                            folder.id,
+                          );
+                          const expanded = expandedFolderIds.has(folder.id);
+
+                          return (
+                            <section
+                              className="library-folder"
+                              key={folder.id}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => dropDocumentIntoFolder(event, folder.id)}
+                            >
+                              <div className="library-folder-head">
+                                <button type="button" onClick={() => toggleFolder(folder.id)}>
+                                  <Folder aria-hidden="true" />
+                                  <span>{folder.name}</span>
+                                  <strong>{folderDocuments.length}</strong>
+                                </button>
+                                <div className="library-folder-actions">
+                                  <button
+                                    className="recent-document-icon-button"
+                                    type="button"
+                                    aria-label={`上移文件夹 ${folder.name}`}
+                                    disabled={folderIndex === 0}
+                                    onClick={() =>
+                                      void runOrganizationAction(() => onReorderFolder(section.id, folder.id, -1))
+                                    }
+                                  >
+                                    <ChevronUp aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    className="recent-document-icon-button"
+                                    type="button"
+                                    aria-label={`下移文件夹 ${folder.name}`}
+                                    disabled={folderIndex === folders.length - 1}
+                                    onClick={() =>
+                                      void runOrganizationAction(() => onReorderFolder(section.id, folder.id, 1))
+                                    }
+                                  >
+                                    <ChevronDown aria-hidden="true" />
+                                  </button>
+                                </div>
+                              </div>
+                              {expanded ? (
+                                <div className="library-folder-body">
+                                  {folderDocuments.length ? (
+                                    renderDocumentList(folderDocuments, folder.id)
+                                  ) : (
+                                    <div className="recent-documents-empty">把文档拖到这里。</div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </section>
+                          );
+                        })}
+
+                        <div
+                          className="library-root-dropzone"
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => dropDocumentIntoFolder(event, undefined)}
+                        >
+                          {rootDocuments.length ? (
+                            renderDocumentList(rootDocuments)
+                          ) : (
+                            <div className="recent-documents-empty">
+                              {folders.length ? "未归档文档可拖回这里。" : `还没有保存的${section.title}。`}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="recent-documents-empty">还没有保存的{section.title}。</div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
-            {renameError || deleteError ? (
-              <div className="recent-documents-error">{renameError || deleteError}</div>
+            {renameError || deleteError || organizeError ? (
+              <div className="recent-documents-error">{renameError || deleteError || organizeError}</div>
             ) : null}
           </div>
         ) : null}
@@ -1047,9 +1351,11 @@ function ProcessingWorkbench({
 export default function HomeClient({
   initialLibraryDocuments = [],
   initialTitleOverrides = {},
+  initialLibraryOrganization = emptyLibraryOrganization,
 }: {
   initialLibraryDocuments?: LibraryDocument[];
   initialTitleOverrides?: TitleOverrides;
+  initialLibraryOrganization?: LibraryOrganization;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const accessCodeRef = useRef("");
@@ -1082,6 +1388,9 @@ export default function HomeClient({
   const [documentUrl, setDocumentUrl] = useState("");
   const [libraryDocuments, setLibraryDocuments] = useState<LibraryDocument[]>(() =>
     mergeLibraryDocuments(initialLibraryDocuments, initialTitleOverrides),
+  );
+  const [libraryOrganization, setLibraryOrganization] = useState<LibraryOrganization>(() =>
+    normalizeLibraryOrganization(initialLibraryOrganization),
   );
   const [locallyDeletedDocumentIds, setLocallyDeletedDocumentIds] = useState<Set<string>>(() => new Set());
 
@@ -1155,15 +1464,20 @@ export default function HomeClient({
   useEffect(() => {
     if (!authUser) {
       setLibraryDocuments(mergeLibraryDocuments([], initialTitleOverrides));
+      setLibraryOrganization(emptyLibraryOrganization);
       return;
     }
 
     fetch("/api/documents")
       .then((response) => response.json())
-      .then((data: { documents?: LibraryDocument[]; titleOverrides?: TitleOverrides }) =>
-        setLibraryDocuments(mergeLibraryDocuments(data.documents ?? [], data.titleOverrides ?? {})),
-      )
-      .catch(() => setLibraryDocuments(mergeLibraryDocuments([], initialTitleOverrides)));
+      .then((data: { documents?: LibraryDocument[]; titleOverrides?: TitleOverrides; libraryOrganization?: LibraryOrganization }) => {
+        setLibraryDocuments(mergeLibraryDocuments(data.documents ?? [], data.titleOverrides ?? {}));
+        setLibraryOrganization(normalizeLibraryOrganization(data.libraryOrganization));
+      })
+      .catch(() => {
+        setLibraryDocuments(mergeLibraryDocuments([], initialTitleOverrides));
+        setLibraryOrganization(emptyLibraryOrganization);
+      });
   }, [authUser, initialTitleOverrides]);
 
   function parseRangeValue(value: string, label: string) {
@@ -1184,8 +1498,8 @@ export default function HomeClient({
       throw new Error("页码范围无效：起始页不能大于结束页。");
     }
 
-    if (config && start && end && end - start + 1 > config.limits.maxSourcePages) {
-      throw new Error(`本次选择 ${end - start + 1} 个原始页面，超过当前扫描限制 ${config.limits.maxSourcePages} 页。`);
+    if (config && start && end && end - start + 1 > config.limits.maxCourseSourcePages) {
+      throw new Error(`本次选择 ${end - start + 1} 个原始页面，超过当前扫描限制 ${config.limits.maxCourseSourcePages} 页。`);
     }
 
     return { start, end };
@@ -1314,6 +1628,7 @@ export default function HomeClient({
     setDocumentId("");
     setDocumentUrl("");
     setLibraryDocuments(mergeLibraryDocuments([], initialTitleOverrides));
+    setLibraryOrganization(emptyLibraryOrganization);
     window.history.replaceState(null, "", "/");
   }
 
@@ -1458,6 +1773,141 @@ export default function HomeClient({
       restoreDeletedDocument();
       throw new Error(data.error || "删除失败。");
     }
+  }
+
+  async function commitLibraryOrganization(nextOrganization: LibraryOrganization) {
+    const previousOrganization = libraryOrganization;
+    setLibraryOrganization(nextOrganization);
+
+    let response: Response;
+    let data: { libraryOrganization?: LibraryOrganization; error?: string };
+    try {
+      response = await fetch("/api/documents/library", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ organization: nextOrganization }),
+      });
+      data = (await response.json().catch(() => ({}))) as {
+        libraryOrganization?: LibraryOrganization;
+        error?: string;
+      };
+    } catch (error) {
+      setLibraryOrganization(previousOrganization);
+      throw new Error(error instanceof Error ? error.message : "文档库组织保存失败。");
+    }
+
+    if (!response.ok || !data.libraryOrganization) {
+      setLibraryOrganization(previousOrganization);
+      throw new Error(data.error || "文档库组织保存失败。");
+    }
+
+    setLibraryOrganization(normalizeLibraryOrganization(data.libraryOrganization));
+  }
+
+  async function createLibraryFolder(kind: LibraryKind, name: string) {
+    const now = new Date().toISOString();
+    const folderName = name.trim().replace(/\s+/g, " ");
+    if (!folderName) {
+      throw new Error("文件夹名称不能为空。");
+    }
+
+    const existingFolders = sortedLibraryFolders(libraryOrganization, kind);
+    await commitLibraryOrganization({
+      ...libraryOrganization,
+      folders: [
+        ...libraryOrganization.folders,
+        {
+          id: createFolderId(),
+          kind,
+          name: folderName,
+          order: existingFolders.length,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+  }
+
+  async function moveLibraryDocument(documentId: string, folderId?: string) {
+    const document = libraryDocuments.find((item) => item.id === documentId);
+    if (!document) return;
+
+    const kind = libraryKindForDocument(document);
+    const folder = folderId ? libraryOrganization.folders.find((item) => item.id === folderId) : undefined;
+    if (folderId && (!folder || folder.kind !== kind)) {
+      throw new Error("不能移动到不同类型的文件夹。");
+    }
+
+    const targetDocuments = sortedLibraryDocuments(libraryDocuments, libraryOrganization, kind, folderId).filter(
+      (item) => item.id !== documentId,
+    );
+    const now = new Date().toISOString();
+
+    await commitLibraryOrganization({
+      ...libraryOrganization,
+      placements: {
+        ...libraryOrganization.placements,
+        [documentId]: {
+          folderId,
+          order: targetDocuments.length,
+          updatedAt: now,
+        },
+      },
+    });
+  }
+
+  async function reorderLibraryDocument(documentId: string, folderId: string | undefined, direction: -1 | 1) {
+    const document = libraryDocuments.find((item) => item.id === documentId);
+    if (!document) return;
+
+    const kind = libraryKindForDocument(document);
+    const documents = sortedLibraryDocuments(libraryDocuments, libraryOrganization, kind, folderId);
+    const fromIndex = documents.findIndex((item) => item.id === documentId);
+    const toIndex = fromIndex + direction;
+    if (fromIndex < 0 || toIndex < 0 || toIndex >= documents.length) return;
+
+    const reordered = [...documents];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const now = new Date().toISOString();
+    const placements = { ...libraryOrganization.placements };
+    reordered.forEach((item, index) => {
+      placements[item.id] = {
+        folderId,
+        order: index,
+        updatedAt: now,
+      };
+    });
+
+    await commitLibraryOrganization({
+      ...libraryOrganization,
+      placements,
+    });
+  }
+
+  async function reorderLibraryFolder(kind: LibraryKind, folderId: string, direction: -1 | 1) {
+    const folders = sortedLibraryFolders(libraryOrganization, kind);
+    const fromIndex = folders.findIndex((folder) => folder.id === folderId);
+    const toIndex = fromIndex + direction;
+    if (fromIndex < 0 || toIndex < 0 || toIndex >= folders.length) return;
+
+    const reordered = [...folders];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    const now = new Date().toISOString();
+    const nextFolders = libraryOrganization.folders.map((folder) => {
+      if (folder.kind !== kind) return folder;
+      const index = reordered.findIndex((item) => item.id === folder.id);
+      return index >= 0 ? { ...folder, order: index, updatedAt: now } : folder;
+    });
+
+    await commitLibraryOrganization({
+      ...libraryOrganization,
+      folders: nextFolders,
+    });
   }
 
   function upsertSlide(slide: SlideResult) {
@@ -1789,6 +2239,7 @@ export default function HomeClient({
           accessCode={accessCode}
           onAccessCodeChange={updateAccessCode}
           libraryDocuments={visibleLibraryDocuments}
+          libraryOrganization={libraryOrganization}
           startPage={startPage}
           endPage={endPage}
           onStartPageChange={setStartPage}
@@ -1813,6 +2264,10 @@ export default function HomeClient({
           onDropFile={(file) => void processFile(file)}
           onRenameDocument={renameLibraryDocument}
           onDeleteDocument={deleteLibraryDocument}
+          onCreateFolder={createLibraryFolder}
+          onMoveDocument={moveLibraryDocument}
+          onReorderDocument={reorderLibraryDocument}
+          onReorderFolder={reorderLibraryFolder}
         />
       </main>
     </>

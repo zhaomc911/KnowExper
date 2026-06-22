@@ -352,6 +352,8 @@ export async function POST(request: Request) {
         const requestedDocumentKind = documentKindFromForm(formData.get("documentKind")) ?? "course_slides";
         const maxExplainUnits =
           requestedDocumentKind === "academic_paper" ? limits.maxPaperPages : limits.maxPages;
+        const maxSourcePagesForKind =
+          requestedDocumentKind === "course_slides" ? limits.maxCourseSourcePages : limits.maxSourcePages;
         const requestedStartPage =
           requestedDocumentKind === "course_slides" ? pageNumberFromForm(formData.get("startPage")) : undefined;
         const requestedEndPage =
@@ -361,9 +363,9 @@ export async function POST(request: Request) {
           throw new Error("页码范围无效：起始页不能大于结束页。");
         }
 
-        if (requestedStartPage && requestedEndPage && requestedEndPage - requestedStartPage + 1 > limits.maxSourcePages) {
+        if (requestedStartPage && requestedEndPage && requestedEndPage - requestedStartPage + 1 > maxSourcePagesForKind) {
           throw new Error(
-            `本次选择 ${requestedEndPage - requestedStartPage + 1} 个原始页面，超过当前源文件扫描限制 ${limits.maxSourcePages} 页。`,
+            `本次选择 ${requestedEndPage - requestedStartPage + 1} 个原始页面，超过当前源文件扫描限制 ${maxSourcePagesForKind} 页。`,
           );
         }
 
@@ -379,7 +381,7 @@ export async function POST(request: Request) {
           requestedStartPage || requestedEndPage
             ? `range:${requestedStartPage || ""}-${requestedEndPage || ""}`
             : "";
-        const collapseSalt = `collapse:v2:kind:${requestedDocumentKind}:maxSource:${limits.maxSourcePages}:maxUnits:${maxExplainUnits}`;
+        const collapseSalt = `collapse:v3:kind:${requestedDocumentKind}:maxSource:${maxSourcePagesForKind}:maxUnits:${maxExplainUnits}`;
         const fileHash = hashPdfBytes(
           originalBuffer,
           [`owner:${user.id}`, sourceType === "pptx" ? "source:pptx" : "", rangeSalt, collapseSalt]
@@ -539,7 +541,7 @@ export async function POST(request: Request) {
         let effectiveStartPage = requestedStartPage || 1;
         let effectiveEndPage = requestedEndPage || 1;
         const analyzedPages = await analyzePdfPages(buffer, {
-          maxSourcePages: limits.maxSourcePages,
+          maxSourcePages: maxSourcePagesForKind,
           startPage: requestedStartPage,
           endPage: requestedEndPage,
           signal: jobTimeout.signal,
